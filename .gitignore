@@ -1,0 +1,31 @@
+# Rust / Cargo
+/target/
+
+# Logi emulatora
+/log/
+*.log
+log*.txt
+
+# ROM-y Game Boy
+*.gb
+*.gbc
+*.gba
+
+# Save RAM
+*.sav
+
+# Savestates
+*.state
+*.sst
+*.savestate
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# IDE / system
+*.swp
+*.swo
