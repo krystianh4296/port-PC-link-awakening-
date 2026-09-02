@@ -44,4 +44,10 @@ echo.
 
 cargo run --release > "log\log-%LOGFILE%.txt" 2>&1
 
+echo.
+echo Emulator zakonczyl dzialanie.
+echo Log zapisany jako:
+echo log\log-%LOGFILE%.txt
+echo.
+
 pause
