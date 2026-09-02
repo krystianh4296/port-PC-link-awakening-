@@ -126,6 +126,7 @@ impl Debugger {
         println!("DEBUG: trace {:04X}-{:04X}", start, end);
     }
     pub fn set_trace_single(&mut self, address: u16) {
+        self.enabled = true;
         self.trace_start = address;
         self.trace_end = address;
         self.trace_enabled = true;
