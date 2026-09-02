@@ -71,10 +71,26 @@ fn main() {
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let mut buttons = 0xFFu8;
-        let cycles = cpu.step(&mut bus);
-        bus.step(cycles, &mut buffer);
 
-        steps += 1;
+        if window.is_key_pressed(Key::F5, minifb::KeyRepeat::No) {
+            bus.save_game();
+        }
+
+        if window.is_key_pressed(Key::F6, minifb::KeyRepeat::No) {
+            bus.load_game();
+        }
+
+        if window.is_key_pressed(Key::F8, minifb::KeyRepeat::No) {
+            let state = SaveState::capture(&cpu, &bus);
+            save_to_file(&state, "save.state");
+            println!("Savestate zapisany.");
+        }
+
+        if window.is_key_pressed(Key::F9, minifb::KeyRepeat::No) {
+            let state = load_from_file("save.state");
+            state.restore(&mut cpu, &mut bus);
+            println!("Savestate wczytany.");
+        }
 
         if steps % 1_000_000 == 0 {
             println!("===== OPCODES po {} instrukcjach =====", steps);
@@ -86,24 +102,6 @@ fn main() {
                     println!("OP {:02X}: {}", opcode, count);
                 }
             }
-        }
-        if window.is_key_pressed(Key::F5, minifb::KeyRepeat::No) {
-            bus.save_game();
-        }
-
-        if window.is_key_pressed(Key::F6, minifb::KeyRepeat::No) {
-            bus.load_game();
-        }
-        if window.is_key_pressed(Key::F8, minifb::KeyRepeat::No) {
-            let state = SaveState::capture(&cpu, &bus);
-            save_to_file(&state, "save.state");
-            println!("Savestate zapisany.");
-        }
-
-        if window.is_key_pressed(Key::F9, minifb::KeyRepeat::No) {
-            let state = load_from_file("save.state");
-            state.restore(&mut cpu, &mut bus);
-            println!("Savestate wczytany.");
         }
 
         if window.is_key_down(Key::D) {
