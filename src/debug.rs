@@ -3,7 +3,11 @@ use std::io::{self, BufRead};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-use crate::{bus::Bus, cpu::Cpu};
+use crate::{
+    bus::Bus,
+    cpu::Cpu,
+    debug_snapshot::DebugSnapshot,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DebugAction { Run, Step, Continue, Break }
