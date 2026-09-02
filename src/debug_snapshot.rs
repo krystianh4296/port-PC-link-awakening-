@@ -162,27 +162,9 @@ fn diff_bus(
     out: &mut Vec<String>,
     options: DiffOptions,
 ) {
-    diff_bytes(
-        "Bus.vram",
-        &a.vram,
-        &b.vram,
-        out,
-        Some(options.max_vram_lines),
-    );
-    diff_bytes(
-        "Bus.wram",
-        &a.wram,
-        &b.wram,
-        out,
-        Some(options.max_wram_lines),
-    );
-    diff_bytes(
-        "Bus.oam",
-        &a.oam,
-        &b.oam,
-        out,
-        Some(options.max_oam_lines),
-    );
+    diff_bytes("Bus.vram", &a.vram, &b.vram, out, Some(options.max_vram_lines));
+    diff_bytes("Bus.wram", &a.wram, &b.wram, out, Some(options.max_wram_lines));
+    diff_bytes("Bus.oam", &a.oam, &b.oam, out, Some(options.max_oam_lines));
     diff_bytes("Bus.hram", &a.hram, &b.hram, out, None);
     diff_bytes("Bus.io", &a.io, &b.io, out, None);
 
@@ -201,7 +183,6 @@ fn diff_bus(
     check!(buttons);
     check!(ie);
     check!(if_reg);
-
     check!(ly);
     check!(lyc);
     check!(ppu_mode);
@@ -216,7 +197,6 @@ fn diff_bus(
     check!(wy);
     check!(wx);
     check!(dma);
-
     check!(div);
     check!(tima);
     check!(tma);
@@ -267,7 +247,6 @@ fn diff_apu(a: &ApuState, b: &ApuState, out: &mut Vec<String>) {
     check!(nr51);
     check!(nr52);
     check!(sample_counter);
-
     diff_square("APU.CH1", &a.ch1, &b.ch1, out);
     diff_square("APU.CH2", &a.ch2, &b.ch2, out);
     diff_wave("APU.CH3", &a.ch3, &b.ch3, out);
@@ -391,5 +370,63 @@ fn diff_bytes(
             "{}: ... pominięto {} kolejnych zmian",
             name, skipped
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diff_bytes;
+
+    fn assert_memory_diff_limit(name: &str) {
+        let a = vec![0u8; 40];
+        let b = vec![1u8; 40];
+        let mut differences = Vec::new();
+
+        diff_bytes(name, &a, &b, &mut differences, Some(32));
+
+        let detailed_changes = differences
+            .iter()
+            .filter(|line| line.starts_with(&format!("{}[", name)))
+            .count();
+
+        assert_eq!(
+            detailed_changes,
+            32,
+            "{} powinien zwrócić dokładnie 32 szczegółowe zmiany: {:?}",
+            name,
+            differences
+        );
+
+        assert_eq!(
+            differences.len(),
+            33,
+            "{} powinien zwrócić 32 zmiany + 1 podsumowanie: {:?}",
+            name,
+            differences
+        );
+
+        assert!(
+            differences.iter().any(|line| {
+                line == &format!("{}: ... pominięto 8 kolejnych zmian", name)
+            }),
+            "{} powinien zgłosić 8 pominiętych zmian: {:?}",
+            name,
+            differences
+        );
+    }
+
+    #[test]
+    fn diff_limits_vram_to_32_changes() {
+        assert_memory_diff_limit("Bus.vram");
+    }
+
+    #[test]
+    fn diff_limits_wram_to_32_changes() {
+        assert_memory_diff_limit("Bus.wram");
+    }
+
+    #[test]
+    fn diff_limits_oam_to_32_changes() {
+        assert_memory_diff_limit("Bus.oam");
     }
 }
