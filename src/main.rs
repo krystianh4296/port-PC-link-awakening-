@@ -68,6 +68,8 @@ fn main() {
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
     let mut tile_buffer = vec![0u32; TILE_DEBUG_WIDTH * TILE_DEBUG_HEIGHT];
     let mut steps: u64 = 0;
+    let mut save_key_lock = false;
+    let mut load_key_lock = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let mut buttons = 0xFFu8;
@@ -80,19 +82,31 @@ fn main() {
             bus.load_game();
         }
 
-        let save_pressed = window.is_key_pressed(Key::F8, minifb::KeyRepeat::No);
-        let load_pressed = window.is_key_pressed(Key::F9, minifb::KeyRepeat::No);
+        let f8_down = window.is_key_down(Key::F8);
+        let f9_down = window.is_key_down(Key::F9);
 
-        if save_pressed {
+        if f8_down && !save_key_lock {
             let state = SaveState::capture(&cpu, &bus);
             save_to_file(&state, "save.state");
             println!("Savestate zapisany.");
+
+            save_key_lock = true;
         }
 
-        if load_pressed {
+        if !f8_down {
+            save_key_lock = false;
+        }
+
+        if f9_down && !load_key_lock {
             let state = load_from_file("save.state");
             state.restore(&mut cpu, &mut bus);
             println!("Savestate wczytany.");
+
+            load_key_lock = true;
+        }
+
+        if !f9_down {
+            load_key_lock = false;
         }
 
         if steps % 1_000_000 == 0 {
