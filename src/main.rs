@@ -8,13 +8,9 @@ mod savestate;
 mod debug;
 
 use std::env;
-use std::io::{self, BufRead};
-use std::sync::mpsc;
-use std::thread;
-
 use bus::Bus;
 use cpu::Cpu;
-use debug::Debugger;
+use debug::{ConsoleCommand, DebugConsole, Debugger};
 use minifb::{Key, Window, WindowOptions};
 use audio::Audio;
 use savestate::{SaveState, save_to_file, load_from_file};
@@ -52,20 +48,7 @@ fn main() {
     println!("DEBUG: F1=włącz/wyłącz, F2=1 instrukcja, F3=continue, F4=break, F10=BP PC, F11=usuń BP, F12=status");
     println!("DEBUG CONSOLE: BP 01A6 | WATCH FF44 | TRACE 0100:0200 | DIS 03CE 3 | HELP");
 
-    let (debug_tx, debug_rx) = mpsc::channel::<String>();
-    thread::spawn(move || {
-        let stdin = io::stdin();
-        for line in stdin.lock().lines() {
-            match line {
-                Ok(line) => {
-                    if debug_tx.send(line).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
+    let debug_console = DebugConsole::new();
 
     let mut window = Window::new(
         "Game Boy Emulator",
@@ -107,8 +90,14 @@ fn main() {
     let mut f12_key_lock = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        while let Ok(command) = debug_rx.try_recv() {
-            handle_debug_command(&command, &mut debugger, &mut cpu, &mut bus);
+        while let Some(command) = debug_console.try_read() {
+            let command = ConsoleCommand::parse(&command);
+
+            debugger.execute_console_command(
+                command,
+                &cpu,
+                &mut bus,
+            );
         }
 
         let mut buttons = 0xFFu8;
@@ -253,93 +242,6 @@ fn main() {
 fn parse_hex_u16(value: &str) -> Option<u16> {
     let value = value.trim_start_matches('$');
     u16::from_str_radix(value, 16).ok()
-}
-
-fn handle_debug_command(command: &str, debugger: &mut Debugger, cpu: &mut Cpu, bus: &mut Bus) {
-    let parts: Vec<_> = command.split_whitespace().collect();
-    if parts.is_empty() { return; }
-
-    match parts[0].to_ascii_uppercase().as_str() {
-        "HELP" => {
-            println!("BP XXXX        dodaj breakpoint");
-            println!("BP DEL XXXX    usuń breakpoint");
-            println!("BP LIST        pokaż breakpointy");
-            println!("WATCH XXXX     obserwuj zmianę wartości");
-            println!("WATCH DEL XXXX usuń watchpoint");
-            println!("WATCH LIST     pokaż watchpointy");
-            println!("TRACE XXXX YYYY włącz trace zakresu PC");
-            println!("TRACE OFF      wyłącz trace");
-            println!("DIS XXXX [N]   disassembly N instrukcji, domyślnie 3");
-            println!("STEP           wykonaj dokładnie 1 instrukcję CPU");
-            println!("CONT           kontynuuj");
-            println!("BREAK          zatrzymaj CPU");
-            println!("STATUS         status CPU + disassembly");
-        }
-        "BP" => match parts.get(1).map(|s| s.to_ascii_uppercase()) {
-            Some(mode) if mode == "LIST" => debugger.list_breakpoints(),
-            Some(mode) if mode == "DEL" => {
-                if let Some(value) = parts.get(2).and_then(|s| parse_hex_u16(s)) {
-                    debugger.remove_breakpoint(value);
-                    println!("DEBUG: BP usunięty {:04X}", value);
-                } else { println!("DEBUG: użycie BP DEL XXXX"); }
-            }
-            Some(_) => {
-                if let Some(value) = parts.get(1).and_then(|s| parse_hex_u16(s)) {
-                    debugger.add_breakpoint(value);
-                    println!("DEBUG: BP dodany {:04X}", value);
-                } else { println!("DEBUG: użycie BP XXXX"); }
-            }
-            None => println!("DEBUG: użycie BP XXXX | BP DEL XXXX | BP LIST"),
-        },
-        "WATCH" => match parts.get(1).map(|s| s.to_ascii_uppercase()) {
-            Some(mode) if mode == "LIST" => debugger.list_watches(),
-            Some(mode) if mode == "DEL" => {
-                if let Some(value) = parts.get(2).and_then(|s| parse_hex_u16(s)) {
-                    debugger.unwatch(value);
-                } else { println!("DEBUG: użycie WATCH DEL XXXX"); }
-            }
-            Some(_) => {
-                if let Some(value) = parts.get(1).and_then(|s| parse_hex_u16(s)) {
-                    debugger.watch(bus, value);
-                } else { println!("DEBUG: użycie WATCH XXXX"); }
-            }
-            None => println!("DEBUG: użycie WATCH XXXX | WATCH DEL XXXX | WATCH LIST"),
-        },
-        "TRACE" => {
-            if parts.get(1).map(|s| s.eq_ignore_ascii_case("OFF")).unwrap_or(false) {
-                debugger.disable_trace();
-            } else if let (Some(start), Some(end)) = (
-                parts.get(1).and_then(|s| parse_hex_u16(s)),
-                parts.get(2).and_then(|s| parse_hex_u16(s)),
-            ) {
-                debugger.set_trace_range(start, end);
-            } else { println!("DEBUG: użycie TRACE XXXX YYYY | TRACE OFF"); }
-        }
-        "DIS" => {
-            if let Some(start) = parts.get(1).and_then(|s| parse_hex_u16(s)) {
-                let count = parts.get(2).and_then(|s| s.parse::<usize>().ok()).unwrap_or(3);
-                debugger.print_disassembly(bus, start, count);
-            } else { println!("DEBUG: użycie DIS XXXX [N]"); }
-        }
-        "STEP" => {
-            debugger.step();
-            println!("DEBUG: STEP -> dokładnie 1 instrukcja CPU");
-        }
-        "CONT" | "CONTINUE" => {
-            debugger.continue_execution();
-            println!("DEBUG: continue");
-        }
-        "BREAK" => {
-            debugger.break_now(format!("Console break at PC={:04X}", cpu.pc));
-            debugger.print_status(cpu);
-            debugger.print_stop_disassembly(bus, cpu.pc);
-        }
-        "STATUS" => {
-            debugger.print_status(cpu);
-            debugger.print_stop_disassembly(bus, cpu.pc);
-        }
-        _ => println!("DEBUG: nieznana komenda '{}'. Wpisz HELP", command),
-    }
 }
 
 #[cfg(test)]
