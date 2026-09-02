@@ -68,45 +68,63 @@ fn main() {
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
     let mut tile_buffer = vec![0u32; TILE_DEBUG_WIDTH * TILE_DEBUG_HEIGHT];
     let mut steps: u64 = 0;
-    let mut save_key_lock = false;
-    let mut load_key_lock = false;
+    let mut f5_key_lock = false;
+    let mut f6_key_lock = false;
+    let mut f8_key_lock = false;
+    let mut f9_key_lock = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let mut buttons = 0xFFu8;
 
-        if window.is_key_pressed(Key::F5, minifb::KeyRepeat::No) {
-            bus.save_game();
-        }
-
-        if window.is_key_pressed(Key::F6, minifb::KeyRepeat::No) {
-            bus.load_game();
-        }
-
+        let f5_down = window.is_key_down(Key::F5);
+        let f6_down = window.is_key_down(Key::F6);
         let f8_down = window.is_key_down(Key::F8);
         let f9_down = window.is_key_down(Key::F9);
 
-        if f8_down && !save_key_lock {
+        if f5_down && !f5_key_lock {
+            bus.save_game();
+            println!("Gra zapisana.");
+
+            f5_key_lock = true;
+        }
+
+        if !f5_down {
+            f5_key_lock = false;
+        }
+
+        if f6_down && !f6_key_lock {
+            bus.load_game();
+            println!("Gra wczytana.");
+
+            f6_key_lock = true;
+        }
+
+        if !f6_down {
+            f6_key_lock = false;
+        }
+
+        if f8_down && !f8_key_lock {
             let state = SaveState::capture(&cpu, &bus);
             save_to_file(&state, "save.state");
             println!("Savestate zapisany.");
 
-            save_key_lock = true;
+            f8_key_lock = true;
         }
 
         if !f8_down {
-            save_key_lock = false;
+            f8_key_lock = false;
         }
 
-        if f9_down && !load_key_lock {
+        if f9_down && !f9_key_lock {
             let state = load_from_file("save.state");
             state.restore(&mut cpu, &mut bus);
             println!("Savestate wczytany.");
 
-            load_key_lock = true;
+            f9_key_lock = true;
         }
 
         if !f9_down {
-            load_key_lock = false;
+            f9_key_lock = false;
         }
 
         if steps % 1_000_000 == 0 {
