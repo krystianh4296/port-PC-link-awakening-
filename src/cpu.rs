@@ -474,7 +474,18 @@ impl Cpu {
             self.hl(),
             self.sp
         );
-
+        if self.pc < 0x0200 {
+    println!(
+        "TRACE PC={:04X} A={:02X} F={:02X} BC={:04X} DE={:04X} HL={:04X} SP={:04X}",
+        self.pc,
+        self.a,
+        self.f,
+        self.bc(),
+        self.de(),
+        self.hl(),
+        self.sp
+    );
+}
         let opcode = bus.read(self.pc);
 
 println!(">>> OPCODE @0100 = {:02X}", opcode);
