@@ -47,11 +47,11 @@ pub struct CpuState {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BusState {
     // Memory
-    pub vram: [u8; 0x2000],
-    pub wram: [u8; 0x2000],
-    pub oam: [u8; 0xA0],
-    pub hram: [u8; 0x7F],
-    pub io: [u8; 0x80],
+    pub vram: Vec<u8>,
+    pub wram: Vec<u8>,
+    pub oam: Vec<u8>,
+    pub hram: Vec<u8>,
+    pub io: Vec<u8>,
 
     // Joypad
     pub joyp: u8,
