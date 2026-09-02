@@ -475,6 +475,10 @@ impl Cpu {
             self.sp
         );
 
+        let opcode = bus.read(self.pc);
+
+println!(">>> OPCODE @0100 = {:02X}", opcode);
+
         std::io::stdin().read_line(&mut String::new()).unwrap();
     }
         let enable_ime = self.ime_pending;
