@@ -32,4 +32,6 @@ echo.
 echo ========================================
 echo       ZAKONCZONE POMYSLNIE
 echo ========================================
+
+cargo run --release > "log\log-$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').txt" 2>&1
 pause
