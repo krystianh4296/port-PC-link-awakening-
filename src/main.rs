@@ -608,4 +608,101 @@ mod debug_snapshot_tests {
             println!("  {}", difference);
         }
     }
+    #[test]
+    fn snapshot_step_diff_detects_change() {
+        let rom_path =
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+        let mut bus = Bus::new(rom_path);
+        bus.load_game();
+
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
+        let mut debugger = Debugger::new();
+
+        debugger.capture_snapshot(&cpu, &bus);
+
+        // Zmieniamy jeden element stanu CPU.
+        let old_pc = cpu.pc;
+        cpu.pc = cpu.pc.wrapping_add(1);
+
+        // Snapshot powinien wykryć zmianę.
+        let snapshot = debugger
+            .snapshot
+            .as_ref()
+            .expect("Snapshot powinien istnieć");
+
+        let differences = snapshot.compare_with(&cpu, &bus);
+
+        assert!(
+            !differences.is_empty(),
+            "Snapshot powinien wykryć zmianę CPU.PC"
+        );
+
+        assert!(
+            differences.iter().any(|d| d.contains("CPU.pc")),
+            "Diff powinien zawierać zmianę CPU.pc: {:?}",
+            differences
+        );
+
+        // Przywracamy tylko po to, żeby test był czytelny.
+        cpu.pc = old_pc;
+    }
+    #[test]
+fn snapshot_step_real_cpu_instruction_detects_changes() {
+    let rom_path =
+        "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+    let mut bus = Bus::new(rom_path);
+    bus.load_game();
+
+    let mut cpu = Cpu::new();
+    cpu.reset();
+
+    let mut debugger = Debugger::new();
+
+    // SNAPSHOT
+    debugger.capture_snapshot(&cpu, &bus);
+
+    // F2 / STEP
+    debugger.step();
+
+    assert_eq!(
+        debugger.action,
+        debug::DebugAction::Step,
+        "Debugger powinien oczekiwać wykonania jednej instrukcji"
+    );
+
+    // before_instruction() musi pozwolić wykonać instrukcję.
+    assert!(
+        debugger.before_instruction(&cpu, &mut bus),
+        "Debugger nie powinien zablokować instrukcji STEP"
+    );
+
+    // Prawdziwa instrukcja CPU.
+    let _cycles = cpu.step(&mut bus);
+
+    // Odpowiednik after_instruction_hook().
+    debugger.after_instruction_hook(&cpu, &mut bus);
+
+    // Po wykonaniu jednej instrukcji debugger powinien się zatrzymać.
+    assert_eq!(
+        debugger.action,
+        debug::DebugAction::Break,
+        "Po STEP debugger powinien przejść do BREAK"
+    );
+
+    assert_eq!(
+        debugger.stop_reason.as_deref(),
+        Some("Single step complete"),
+        "Debugger powinien zgłosić zakończenie STEP"
+    );
+
+    // Snapshot powinien zostać zużyty.
+    assert!(
+        debugger.snapshot.is_none(),
+        "Snapshot powinien zostać usunięty po STEP"
+    );
+}
 }

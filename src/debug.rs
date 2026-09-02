@@ -36,6 +36,7 @@ pub struct Debugger {
     pub history_limit: usize,
     pub frame: u64,
     pub stop_reason: Option<String>,
+    pub snapshot: Option<DebugSnapshot>,
 }
 
 impl Debugger {
@@ -51,9 +52,15 @@ impl Debugger {
             history:VecDeque::with_capacity(256), 
             history_limit:256, 
             frame:0, 
-            stop_reason:None 
+            stop_reason:None,
+            snapshot: None,
         }
     }
+    pub fn capture_snapshot(&mut self, cpu: &Cpu, bus: &Bus) {
+    self.snapshot = Some(DebugSnapshot::capture(cpu, bus));
+
+    println!("DEBUG SNAPSHOT: zapisano stan bazowy.");
+}
     pub fn enable(&mut self) { 
         self.enabled=true; 
     }
@@ -153,12 +160,19 @@ impl Debugger {
         self.check_change_watches(bus); true
     }
 
-    pub fn after_instruction_hook(&mut self,cpu:&Cpu,bus:&mut Bus) {
+    pub fn after_instruction_hook(&mut self, cpu: &Cpu, bus: &mut Bus) {
         self.check_change_watches(bus);
-        if self.action==DebugAction::Step {
-            self.action=DebugAction::Break;
-            self.stop_reason=Some("Single step complete".to_string());
-            self.print_status(cpu); self.print_stop_disassembly(bus,cpu.pc);
+
+        if self.action == DebugAction::Step {
+            if let Some(snapshot) = self.snapshot.take() {
+                snapshot.print_diff(cpu, bus);
+            }
+
+            self.action = DebugAction::Break;
+            self.stop_reason = Some("Single step complete".to_string());
+
+            self.print_status(cpu);
+            self.print_stop_disassembly(bus, cpu.pc);
         }
     }
 
@@ -486,6 +500,7 @@ pub enum ConsoleCommand {
     Continue,
     Break,
     Status,
+    Snapshot,
 
     Memory(u16, usize),
     History,
@@ -605,6 +620,7 @@ impl ConsoleCommand {
             "CONT" => Self::Continue,
             "BREAK" => Self::Break,
             "STATUS" => Self::Status,
+            "SNAPSHOT" => Self::Snapshot,
 
             "MEM" => {
                 if parts.len() != 3 {
@@ -673,6 +689,7 @@ impl Debugger {
                 println!("CONT            - kontynuuj wykonywanie");
                 println!("BREAK           - zatrzymaj CPU");
                 println!("STATUS          - status CPU");
+                println!("SNAPSHOT        - zapisz stan bazowy do porównania");
                 println!("=========================");
             }
 
@@ -754,6 +771,10 @@ impl Debugger {
 
             ConsoleCommand::Status => {
                 self.print_status(cpu);
+            }
+            
+            ConsoleCommand::Snapshot => {
+                self.capture_snapshot(cpu, bus);
             }
 
             ConsoleCommand::Memory(address, length) => {
