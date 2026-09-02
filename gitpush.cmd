@@ -39,4 +39,5 @@ echo.
 echo Emulator zakonczyl dzialanie.
 echo.
 
+
 pause
