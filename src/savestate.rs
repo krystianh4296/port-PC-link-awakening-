@@ -801,3 +801,105 @@ pub fn load_from_file(path: &str) -> SaveState {
 
     bincode::deserialize(&bytes).unwrap()
 }
+
+pub fn compare_cpu(cpu1: &Cpu, cpu2: &Cpu) -> Result<(), String> {
+    macro_rules! check {
+        ($field:ident) => {
+            if cpu1.$field != cpu2.$field {
+                return Err(format!(
+                    "CPU {}: {:?} != {:?}",
+                    stringify!($field),
+                    cpu1.$field,
+                    cpu2.$field
+                ));
+            }
+        };
+    }
+
+    check!(a);
+    check!(f);
+    check!(b);
+    check!(c);
+    check!(d);
+    check!(e);
+    check!(h);
+    check!(l);
+
+    check!(pc);
+    check!(sp);
+
+    check!(ime);
+    check!(ime_pending);
+    check!(halted);
+
+    Ok(())
+}
+
+pub fn compare_bus(bus1: &Bus, bus2: &Bus) -> Result<(), String> {
+    macro_rules! check {
+        ($field:ident) => {
+            if bus1.$field != bus2.$field {
+                return Err(format!(
+                    "BUS {} różni się",
+                    stringify!($field)
+                ));
+            }
+        };
+    }
+
+    check!(joyp);
+    check!(buttons);
+
+    check!(ly);
+    check!(lyc);
+    check!(ppu_mode);
+    check!(lcd_cycles);
+
+    check!(lcdc);
+    check!(stat);
+
+    check!(scx);
+    check!(scy);
+
+    check!(bgp);
+    check!(obp0);
+    check!(obp1);
+
+    check!(wx);
+    check!(wy);
+
+    check!(dma);
+
+    check!(div);
+    check!(tima);
+    check!(tma);
+    check!(tac);
+
+    check!(div_cycles);
+    check!(tima_cycles);
+
+    check!(ie);
+    check!(if_reg);
+
+    if bus1.vram != bus2.vram {
+        return Err("VRAM różni się".into());
+    }
+
+    if bus1.wram != bus2.wram {
+        return Err("WRAM różni się".into());
+    }
+
+    if bus1.oam != bus2.oam {
+        return Err("OAM różni się".into());
+    }
+
+    if bus1.hram != bus2.hram {
+        return Err("HRAM różni się".into());
+    }
+
+    if bus1.io != bus2.io {
+        return Err("IO różni się".into());
+    }
+
+    Ok(())
+}

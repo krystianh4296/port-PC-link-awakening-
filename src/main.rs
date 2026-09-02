@@ -303,3 +303,43 @@ mod boot_progress {
         }
     }
 }
+
+#[cfg(test)]
+mod savestate_tests {
+    use super::*;
+    use crate::savestate::{compare_bus, compare_cpu};
+
+    #[test]
+    fn savestate_restore_is_identical() {
+        let rom =
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+        let mut bus = Bus::new(rom);
+        bus.load_game();
+
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
+        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+
+        // Rozgrzewka emulatora.
+        for _ in 0..100_000 {
+            let cycles = cpu.step(&mut bus);
+            bus.step(cycles, &mut buffer);
+        }
+
+        // Snapshot A
+        let state = SaveState::capture(&cpu, &bus);
+
+        // Kopia CPU/BUS do porównania
+        let mut cpu_saved = Cpu::new();
+        cpu_saved.reset();
+
+        let mut bus_saved = Bus::new(rom);
+
+        state.clone().restore(&mut cpu_saved, &mut bus_saved);
+
+        compare_cpu(&cpu, &cpu_saved).unwrap();
+        compare_bus(&bus, &bus_saved).unwrap();
+    }
+}
