@@ -1,5 +1,8 @@
-use crate::bus::Bus;
-use crate::cpu::Cpu;
+use crate::{
+    bus::Bus,
+    cpu::Cpu,
+    debug_snapshot::DebugSnapshot,
+};
 use crate::savestate::{
     ApuState, BusState, CpuState, Mbc1State, NoiseChannelState,
     SaveState, SquareChannelState, WaveChannelState,
@@ -24,24 +27,24 @@ impl DebugSnapshot {
         let current = Self::capture(cpu, bus);
         self.diff(&current)
     }
-    
+
     pub fn print_diff(&self, cpu: &Cpu, bus: &Bus) {
-    let differences = self.compare_with(cpu, bus);
+        let differences = self.compare_with(cpu, bus);
 
-    if differences.is_empty() {
-        println!("DEBUG SNAPSHOT: stany są identyczne.");
-        return;
+        if differences.is_empty() {
+            println!("DEBUG SNAPSHOT: stany są identyczne.");
+            return;
+        }
+
+        println!(
+            "DEBUG SNAPSHOT: wykryto {} różnic:",
+            differences.len()
+        );
+
+        for difference in differences {
+            println!("  {}", difference);
+        }
     }
-
-    println!(
-        "DEBUG SNAPSHOT: wykryto {} różnic:",
-        differences.len()
-    );
-
-    for difference in differences {
-        println!("  {}", difference);
-    }
-}
 
     pub fn diff(&self, other: &Self) -> Vec<String> {
         let mut differences = Vec::new();
