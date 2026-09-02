@@ -6,6 +6,7 @@ mod audio;
 mod save;
 mod savestate;
 mod debug;
+mod debug_snapshot;
 
 use std::env;
 use std::time::{Duration, Instant};
