@@ -87,8 +87,8 @@ impl Bus {
             tima: 0,
             tma: 0,
             tac: 0xF8,
-            div_cycles: 0,
-            tima_cycles: 0,
+            pub(crate) div_cycles: u32,
+            pub(crate) tima_cycles: u32,
 
             apu: Apu::new(),
 

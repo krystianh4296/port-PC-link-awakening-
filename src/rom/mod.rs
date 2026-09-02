@@ -86,12 +86,12 @@ fn ram_size_bytes(code: u8) -> usize {
 }
 
 pub struct Mbc1 {
-    rom_bank_low: u8,
-    rom_bank_high: u8,
-    banking_mode: u8,
+    pub(crate) rom_bank_low: u8,
+    pub(crate) rom_bank_high: u8,
+    pub(crate) banking_mode: u8,
 
-    ram_enabled: bool,
-    ram: Vec<u8>,
+    pub(crate) ram_enabled: bool,
+    pub(crate) ram: Vec<u8>,
 }
 
 impl Mbc1 {

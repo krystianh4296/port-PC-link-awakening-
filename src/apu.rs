@@ -7,21 +7,21 @@ const CPU_CLOCK: u32 = 4_194_304;
 pub struct Apu {
     pub enabled: bool,
 
-    frame_sequencer_cycles: u32,
-    frame_sequencer_step: u8,
-    sample_cycles: u32,
+    pub(crate) frame_sequencer_cycles: u32,
+    pub(crate) frame_sequencer_step: u8,
+    pub(crate) sample_cycles: u32,
 
-    ch1: SquareChannel,
-    ch2: SquareChannel,
-    ch3: WaveChannel,
-    ch4: NoiseChannel,
+    pub(crate) ch1: SquareChannel,
+    pub(crate) ch2: SquareChannel,
+    pub(crate) ch3: WaveChannel,
+    pub(crate) ch4: NoiseChannel,
 
-    nr50: u8,
-    nr51: u8,
-    nr52: u8,
+    pub(crate) nr50: u8,
+    pub(crate) nr51: u8,
+    pub(crate) nr52: u8,
 
-    audio: Option<crate::audio::Audio>,
-    sample_counter: u64,
+    pub(crate) audio: Option<crate::audio::Audio>,
+    pub(crate) sample_counter: u64,
 }
 
 impl Apu {
@@ -458,29 +458,29 @@ impl Apu {
 // CHANNEL 1
 // ============================================================
 
-struct SquareChannel {
-    enabled: bool,
+pub(crate) struct SquareChannel {
+    pub(crate) enabled: bool,
 
-    nr0: u8,
-    nr1: u8,
-    nr2: u8,
-    nr3: u8,
-    nr4: u8,
+    pub(crate) nr0: u8,
+    pub(crate) nr1: u8,
+    pub(crate) nr2: u8,
+    pub(crate) nr3: u8,
+    pub(crate) nr4: u8,
 
-    length_counter: u8,
-    length_enabled: bool,
+    pub(crate) length_counter: u8,
+    pub(crate) length_enabled: bool,
 
-    envelope_volume: u8,
-    envelope_timer: u8,
+    pub(crate) envelope_volume: u8,
+    pub(crate) envelope_timer: u8,
 
-    frequency_timer: u16,
-    duty_position: u8,
+    pub(crate) frequency_timer: u16,
+    pub(crate) duty_position: u8,
 
-    sweep_timer: u8,
-    sweep_shadow_frequency: u16,
-    sweep_enabled: bool,
+    pub(crate) sweep_timer: u8,
+    pub(crate) sweep_shadow_frequency: u16,
+    pub(crate) sweep_enabled: bool,
 
-    has_sweep: bool,
+    pub(crate) has_sweep: bool,
 }
 
 impl SquareChannel {
@@ -556,19 +556,6 @@ impl SquareChannel {
     if self.nr2 & 0xF8 == 0 {
         self.enabled = false;
     }
-
-    // println!(
-    //     "APU CH{} TRIGGER: NR0={:02X} NR1={:02X} NR2={:02X} NR3={:02X} NR4={:02X} FREQ={} LEN={} ENV={}",
-    //     if self.has_sweep { 1 } else { 2 },
-    //     self.nr0,
-    //     self.nr1,
-    //     self.nr2,
-    //     self.nr3,
-    //     self.nr4,
-    //     self.frequency(),
-    //     self.length_counter,
-    //     self.envelope_volume,
-    // );
 }
 
     fn frequency_period(frequency: u16) -> u16 {
@@ -726,22 +713,22 @@ impl SquareChannel {
 // CHANNEL 3
 // ============================================================
 
-struct WaveChannel {
-    enabled: bool,
+pub(crate) struct WaveChannel {
+    pub(crate) enabled: bool,
 
-    nr30: u8,
-    nr31: u8,
-    nr32: u8,
-    nr33: u8,
-    nr34: u8,
+    pub(crate) nr30: u8,
+    pub(crate) nr31: u8,
+    pub(crate) nr32: u8,
+    pub(crate) nr33: u8,
+    pub(crate) nr34: u8,
 
-    length_counter: u16,
-    length_enabled: bool,
+    pub(crate) length_counter: u16,
+    pub(crate) length_enabled: bool,
 
-    frequency_timer: u16,
-    position: u8,
+    pub(crate) frequency_timer: u16,
+    pub(crate) position: u8,
 
-    wave_ram: [u8; 16],
+    pub(crate) wave_ram: [u8; 16],
 }
 
 impl WaveChannel {
@@ -883,30 +870,23 @@ impl WaveChannel {
 // CHANNEL 4
 // ============================================================
 
-struct NoiseChannel {
-    enabled: bool,
+pub(crate) struct NoiseChannel {
+    pub(crate) enabled: bool,
 
-    // NR41
-    nr41: u8,
+    pub(crate) nr41: u8,
+    pub(crate) nr42: u8,
+    pub(crate) nr43: u8,
+    pub(crate) nr44: u8,
 
-    // NR42
-    nr42: u8,
+    pub(crate) length_counter: u8,
+    pub(crate) length_enabled: bool,
 
-    // NR43
-    nr43: u8,
+    pub(crate) envelope_volume: u8,
+    pub(crate) envelope_timer: u8,
 
-    // NR44
-    nr44: u8,
+    pub(crate) frequency_timer: u16,
 
-    length_counter: u8,
-    length_enabled: bool,
-
-    envelope_volume: u8,
-    envelope_timer: u8,
-
-    frequency_timer: u16,
-
-    lfsr: u16,
+    pub(crate) lfsr: u16,
 }
 
 impl NoiseChannel {
