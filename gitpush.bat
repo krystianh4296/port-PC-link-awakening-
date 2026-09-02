@@ -30,8 +30,18 @@ if errorlevel 1 (
 
 echo.
 echo ========================================
-echo       ZAKONCZONE POMYSLNIE
+echo       GitHub PUSH OK
 echo ========================================
+echo.
 
-cargo run --release > "log\log-$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').txt" 2>&1
+if not exist "log" mkdir "log"
+
+for /f "delims=" %%i in ('powershell -NoProfile -Command "Get-Date -Format ''yyyy-MM-dd_HH-mm-ss''"') do set "LOGFILE=%%i"
+
+echo Uruchamianie emulatora...
+echo Log: log\log-%LOGFILE%.txt
+echo.
+
+cargo run --release > "log\log-%LOGFILE%.txt" 2>&1
+
 pause
