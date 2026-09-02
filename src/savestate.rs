@@ -254,11 +254,11 @@ impl SaveState {
             },
 
             bus: BusState {
-                vram: bus.vram,
-                wram: bus.wram,
-                oam: bus.oam,
-                hram: bus.hram,
-                io: bus.io,
+                vram: bus.vram.to_vec(),
+                wram: bus.wram.to_vec(),
+                oam: bus.oam.to_vec(),
+                hram: bus.hram.to_vec(),
+                io: bus.io.to_vec(),
 
                 joyp: bus.joyp,
                 buttons: bus.buttons,
@@ -494,11 +494,11 @@ impl SaveState {
         // MEMORY
         // ----------------------------------------------------
 
-        bus.vram = self.bus.vram;
-        bus.wram = self.bus.wram;
-        bus.oam = self.bus.oam;
-        bus.hram = self.bus.hram;
-        bus.io = self.bus.io;
+        bus.vram.copy_from_slice(&self.bus.vram);
+        bus.wram.copy_from_slice(&self.bus.wram);
+        bus.oam.copy_from_slice(&self.bus.oam);
+        bus.hram.copy_from_slice(&self.bus.hram);
+        bus.io.copy_from_slice(&self.bus.io);
 
         // ----------------------------------------------------
         // JOYPAD
@@ -786,14 +786,9 @@ impl SaveState {
 // ============================================================
 
 pub fn save_to_file(state: &SaveState, path: &str) {
-    let bytes = bincode::serde::encode_to_vec(
-        state,
-        bincode::config::standard(),
-    )
-    .unwrap();
+    let bytes = bincode::serialize(state).unwrap();
 
     let mut file = File::create(path).unwrap();
-
     file.write_all(&bytes).unwrap();
 }
 
@@ -804,12 +799,5 @@ pub fn save_to_file(state: &SaveState, path: &str) {
 pub fn load_from_file(path: &str) -> SaveState {
     let bytes = fs::read(path).unwrap();
 
-    let (state, _) =
-        bincode::serde::decode_from_slice(
-            &bytes,
-            bincode::config::standard(),
-        )
-        .unwrap();
-
-    state
+    bincode::deserialize(&bytes).unwrap()
 }

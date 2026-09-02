@@ -7,11 +7,11 @@ pub struct Bus {
     pub rom: Rom,
     pub mbc1: Mbc1,
 
-    pub vram: [u8; 0x2000],
-    pub wram: [u8; 0x2000],
-    pub oam: [u8; 0xA0],
-    pub hram: [u8; 0x7F],
-    pub io: [u8; 0x80],
+    pub vram: Vec<u8>,
+    pub wram: Vec<u8>,
+    pub oam: Vec<u8>,
+    pub hram: Vec<u8>,
+    pub io: Vec<u8>,
 
     pub joyp: u8,
     pub buttons: u8,
@@ -38,8 +38,8 @@ pub struct Bus {
     pub tima: u8,
     pub tma: u8,
     pub tac: u8,
-    div_cycles: u32,
-    tima_cycles: u32,
+    pub(crate) div_cycles: u32,
+    pub(crate) tima_cycles: u32,
 
     pub apu: Apu,
 
@@ -87,8 +87,8 @@ impl Bus {
             tima: 0,
             tma: 0,
             tac: 0xF8,
-            pub(crate) div_cycles: u32,
-            pub(crate) tima_cycles: u32,
+            div_cycles: 0,
+            tima_cycles: 0,
 
             apu: Apu::new(),
 
