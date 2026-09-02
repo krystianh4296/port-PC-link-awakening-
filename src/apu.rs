@@ -8,7 +8,7 @@ pub struct Apu {
 
     pub(crate) frame_sequencer_cycles: u32,
     pub(crate) frame_sequencer_step: u8,
-    pub(crate) sample_cycles: u32,
+    pub(crate) sample_cycles: u64,
 
     pub(crate) ch1: SquareChannel,
     pub(crate) ch2: SquareChannel,
@@ -67,11 +67,17 @@ impl Apu {
             self.tick_frame_sequencer();
         }
 
-        // Docelowo chcemy około 48 kHz.
-        self.sample_cycles += cycles * SAMPLE_RATE;
+        // Generowanie próbek 48 kHz z zegara CPU 4.194304 MHz.
+        //
+        // Każdy cykl CPU dodaje:
+        // 48_000 / 4_194_304 próbki.
+        //
+        // Używamy akumulatora całkowitoliczbowego, żeby nie gubić
+        // ułamkowych części okresu próbki.
+        self.sample_cycles += cycles as u64 * SAMPLE_RATE as u64;
 
-        while self.sample_cycles >= CPU_CLOCK {
-            self.sample_cycles -= CPU_CLOCK;
+        while self.sample_cycles >= CPU_CLOCK as u64 {
+            self.sample_cycles -= CPU_CLOCK as u64;
             self.generate_sample();
         }
 
