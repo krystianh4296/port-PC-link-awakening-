@@ -40,7 +40,7 @@ echo.
 
 if not exist "log" mkdir "log"
 
-powershell -NoProfile cargo run --release *> ('log\log-' + $date + '.txt')"
+powershell -NoProfile cargo run --release
 
 echo.
 echo Emulator zakonczyl dzialanie.
