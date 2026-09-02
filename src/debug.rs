@@ -642,7 +642,7 @@ impl Debugger {
         &mut self,
         command: ConsoleCommand,
         cpu: &crate::cpu::Cpu,
-        bus: &mut &crate::bus::Bus,
+        bus: &mut crate::bus::Bus,
     ) {
         match command {
             ConsoleCommand::Help => {
