@@ -14,8 +14,6 @@ pub struct Cpu {
     pub sp: u16,
     pub pc: u16,
 
-    debug_2999_counter: u64,
-
     pub ime: bool,
     pub ime_pending: bool,
     pub halted: bool,
@@ -37,7 +35,6 @@ impl Cpu {
             l: 0,
             sp: 0,
             pc: 0,
-            debug_2999_counter: 0,
             ime: false,
             ime_pending: false,
             halted: false,
@@ -76,11 +73,6 @@ impl Cpu {
 
     pub fn hl(&self) -> u16 {
         ((self.h as u16) << 8) | self.l as u16
-    }
-
-    pub fn set_af(&mut self, value: u16) {
-        self.a = (value >> 8) as u8;
-        self.f = (value as u8) & 0xF0;
     }
 
     pub fn set_bc(&mut self, value: u16) {
@@ -241,36 +233,6 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
             1 => self.de(),
             2 => self.hl(),
             3 => self.sp,
-            _ => unreachable!(),
-        }
-    }
-
-    // fn write_rr(&mut self, index: u8, value: u16) {
-    //     match index {
-    //         0 => self.set_bc(value),
-    //         1 => self.set_de(value),
-    //         2 => self.set_hl(value),
-    //         3 => self.sp = value,
-    //         _ => unreachable!(),
-    //     }
-    // }
-
-    fn read_rr_push(&self, index: u8) -> u16 {
-        match index {
-            0 => self.bc(),
-            1 => self.de(),
-            2 => self.hl(),
-            3 => self.af(),
-            _ => unreachable!(),
-        }
-    }
-
-    fn write_rr_pop(&mut self, index: u8, value: u16) {
-        match index {
-            0 => self.set_bc(value),
-            1 => self.set_de(value),
-            2 => self.set_hl(value),
-            3 => self.set_af(value),
             _ => unreachable!(),
         }
     }
