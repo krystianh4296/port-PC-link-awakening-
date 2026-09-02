@@ -11,6 +11,7 @@ use std::env;
 
 use bus::Bus;
 use cpu::Cpu;
+use debug::Debugger;
 use minifb::{Key, Window, WindowOptions};
 use audio::Audio;
 use savestate::{SaveState, save_to_file, load_from_file};
@@ -36,6 +37,8 @@ fn main() {
 
     bus.set_audio(audio);
 
+    let mut debugger = Debugger::new();
+
     println!("ROM wczytany poprawnie.");
     println!("Rozmiar: {} bajtów", bus.rom.size());
     println!("Tytuł: {}", bus.rom.title());
@@ -44,6 +47,7 @@ fn main() {
     println!("RAM size code: {:02X}", bus.rom.ram_size_code());
     println!("CPU uruchomiony. PC={:04X} SP={:04X}", cpu.pc, cpu.sp);
     println!("Sterowanie: WASD = D-pad, J = A, K = B, U = Select, I = Start");
+    println!("DEBUG: F1=włącz/wyłącz, F2=step, F3=continue, F4=break, F10=breakpoint PC, F11=usuń breakpoint, F12=status");
 
     let mut window = Window::new(
         "Game Boy Emulator",
@@ -56,7 +60,7 @@ fn main() {
     )
     .expect("Nie udało się utworzyć okna");
 
-        window.set_target_fps(60);
+    window.set_target_fps(60);
 
     let mut tile_window = Window::new(
         "VRAM Tiles",
@@ -72,18 +76,79 @@ fn main() {
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
     let mut tile_buffer = vec![0u32; TILE_DEBUG_WIDTH * TILE_DEBUG_HEIGHT];
     let mut steps: u64 = 0;
+    let mut f1_key_lock = false;
+    let mut f2_key_lock = false;
+    let mut f3_key_lock = false;
+    let mut f4_key_lock = false;
     let mut f5_key_lock = false;
     let mut f6_key_lock = false;
     let mut f8_key_lock = false;
     let mut f9_key_lock = false;
+    let mut f10_key_lock = false;
+    let mut f11_key_lock = false;
+    let mut f12_key_lock = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let mut buttons = 0xFFu8;
 
+        let f1_down = window.is_key_down(Key::F1);
+        let f2_down = window.is_key_down(Key::F2);
+        let f3_down = window.is_key_down(Key::F3);
+        let f4_down = window.is_key_down(Key::F4);
         let f5_down = window.is_key_down(Key::F5);
         let f6_down = window.is_key_down(Key::F6);
         let f8_down = window.is_key_down(Key::F8);
         let f9_down = window.is_key_down(Key::F9);
+        let f10_down = window.is_key_down(Key::F10);
+        let f11_down = window.is_key_down(Key::F11);
+        let f12_down = window.is_key_down(Key::F12);
+
+        if f1_down && !f1_key_lock {
+            if debugger.enabled {
+                debugger.disable();
+                println!("DEBUG: wyłączony");
+            } else {
+                debugger.enable();
+                debugger.print_status(&cpu);
+                println!("DEBUG: włączony");
+            }
+
+            f1_key_lock = true;
+        }
+
+        if !f1_down {
+            f1_key_lock = false;
+        }
+
+        if f2_down && !f2_key_lock {
+            debugger.step();
+            println!("DEBUG: step przygotowany");
+            f2_key_lock = true;
+        }
+
+        if !f2_down {
+            f2_key_lock = false;
+        }
+
+        if f3_down && !f3_key_lock {
+            debugger.continue_execution();
+            println!("DEBUG: continue");
+            f3_key_lock = true;
+        }
+
+        if !f3_down {
+            f3_key_lock = false;
+        }
+
+        if f4_down && !f4_key_lock {
+            debugger.break_now(format!("Manual break at PC={:04X}", cpu.pc));
+            debugger.print_status(&cpu);
+            f4_key_lock = true;
+        }
+
+        if !f4_down {
+            f4_key_lock = false;
+        }
 
         if f5_down && !f5_key_lock {
             bus.save_game();
@@ -131,6 +196,40 @@ fn main() {
             f9_key_lock = false;
         }
 
+        if f10_down && !f10_key_lock {
+            if debugger.has_breakpoint(cpu.pc) {
+                println!("DEBUG: breakpoint już istnieje na {:04X}", cpu.pc);
+            } else {
+                debugger.add_breakpoint(cpu.pc);
+                println!("DEBUG: breakpoint dodany na {:04X}", cpu.pc);
+            }
+
+            f10_key_lock = true;
+        }
+
+        if !f10_down {
+            f10_key_lock = false;
+        }
+
+        if f11_down && !f11_key_lock {
+            debugger.remove_breakpoint(cpu.pc);
+            println!("DEBUG: breakpoint usunięty z {:04X}", cpu.pc);
+            f11_key_lock = true;
+        }
+
+        if !f11_down {
+            f11_key_lock = false;
+        }
+
+        if f12_down && !f12_key_lock {
+            debugger.print_status(&cpu);
+            f12_key_lock = true;
+        }
+
+        if !f12_down {
+            f12_key_lock = false;
+        }
+
         if window.is_key_down(Key::D) {
             buttons &= !(1 << 0);
         }
@@ -158,22 +257,31 @@ fn main() {
 
         bus.set_buttons(buttons);
 
-        let cycles = cpu.step(&mut bus);
-        let frame_ready = bus.step(cycles, &mut buffer);
+        let execute_instruction = debugger.before_instruction(&cpu, &mut bus);
+        let mut frame_ready = false;
 
-        steps += 1;
+        if execute_instruction {
+            let cycles = cpu.step(&mut bus);
+            frame_ready = bus.step(cycles, &mut buffer);
+            debugger.after_instruction_hook();
+            steps += 1;
+        }
 
-        if steps % 50_000 == 0 {
+        if frame_ready {
+            debugger.next_frame(&mut bus);
+
+            window
+                .update_with_buffer(&buffer, WIDTH, HEIGHT)
+                .expect("Błąd aktualizacji ekranu");
+        } else if !execute_instruction {
+            window.update();
+        }
+
+        if steps % 50_000 == 0 && steps != 0 {
             bus.render_tile_debug(&mut tile_buffer);
             tile_window
                 .update_with_buffer(&tile_buffer, TILE_DEBUG_WIDTH, TILE_DEBUG_HEIGHT)
                 .unwrap();
-        }
-
-        if frame_ready {
-            window
-                .update_with_buffer(&buffer, WIDTH, HEIGHT)
-                .expect("Błąd aktualizacji ekranu");
         }
     }
 }
