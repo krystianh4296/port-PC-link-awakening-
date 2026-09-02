@@ -80,13 +80,16 @@ fn main() {
             bus.load_game();
         }
 
-        if window.is_key_pressed(Key::F8, minifb::KeyRepeat::No) {
+        let save_pressed = window.is_key_pressed(Key::F8, minifb::KeyRepeat::No);
+        let load_pressed = window.is_key_pressed(Key::F9, minifb::KeyRepeat::No);
+
+        if save_pressed {
             let state = SaveState::capture(&cpu, &bus);
             save_to_file(&state, "save.state");
             println!("Savestate zapisany.");
         }
 
-        if window.is_key_pressed(Key::F9, minifb::KeyRepeat::No) {
+        if load_pressed {
             let state = load_from_file("save.state");
             state.restore(&mut cpu, &mut bus);
             println!("Savestate wczytany.");
