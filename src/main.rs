@@ -215,21 +215,40 @@ fn main() {
 
         bus.set_buttons(buttons);
 
-        let execute_instruction = debugger.before_instruction(&cpu, &mut bus);
         let mut frame_ready = false;
 
-        if execute_instruction {
+        while !frame_ready {
+            while let Some(command) = debug_console.try_read() {
+                let command = ConsoleCommand::parse(&command);
+
+                debugger.execute_console_command(
+                    command,
+                    &cpu,
+                    &mut bus,
+                );
+            }
+
+            let execute_instruction = debugger.before_instruction(&cpu, &mut bus);
+
+            if !execute_instruction {
+                window.update();
+                break;
+            }
+
             let cycles = cpu.step(&mut bus);
             frame_ready = bus.step(cycles, &mut buffer);
+
             debugger.after_instruction_hook(&cpu, &mut bus);
+
             steps += 1;
         }
 
         if frame_ready {
             debugger.next_frame(&mut bus);
-            window.update_with_buffer(&buffer, WIDTH, HEIGHT).expect("Błąd aktualizacji ekranu");
-        } else if !execute_instruction {
-            window.update();
+
+            window
+                .update_with_buffer(&buffer, WIDTH, HEIGHT)
+                .expect("Błąd aktualizacji ekranu");
         }
 
         if steps % 50_000 == 0 && steps != 0 {
