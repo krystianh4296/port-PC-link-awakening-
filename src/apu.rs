@@ -45,10 +45,10 @@ impl Apu {
             sample_counter: 0,
         }
     }
-    
+
     pub fn set_audio(&mut self, audio: Audio) {
-    self.audio = Some(audio);
-}
+        self.audio = Some(audio);
+    }
 
     pub fn step(&mut self, cycles: u32) {
         if !self.enabled {
@@ -111,14 +111,11 @@ impl Apu {
         // Sweep CH1:
         //
         // 2, 6 = sweep
-        if self.frame_sequencer_step == 2
-            || self.frame_sequencer_step == 6
-        {
+        if self.frame_sequencer_step == 2 || self.frame_sequencer_step == 6 {
             self.ch1.clock_sweep();
         }
 
-        self.frame_sequencer_step =
-            (self.frame_sequencer_step + 1) & 7;
+        self.frame_sequencer_step = (self.frame_sequencer_step + 1) & 7;
     }
 
     fn generate_sample(&mut self) {
@@ -143,11 +140,9 @@ impl Apu {
             }
         }
 
-        let right_volume =
-            (self.nr50 & 0x07) as f32 / 7.0;
+        let right_volume = (self.nr50 & 0x07) as f32 / 7.0;
 
-        let left_volume =
-            ((self.nr50 >> 4) & 0x07) as f32 / 7.0;
+        let left_volume = ((self.nr50 >> 4) & 0x07) as f32 / 7.0;
 
         left *= left_volume;
         right *= right_volume;
@@ -169,20 +164,16 @@ impl Apu {
             // =========================
             // CH1
             // =========================
-
             0xFF10 => self.ch1.nr0 | 0x80,
             0xFF11 => self.ch1.nr1,
             0xFF12 => self.ch1.nr2,
             0xFF13 => self.ch1.nr3,
 
-            0xFF14 => {
-                (self.ch1.nr4 & 0xC7) | 0xBF
-            }
+            0xFF14 => (self.ch1.nr4 & 0xC7) | 0xBF,
 
             // =========================
             // CH2
             // =========================
-
             0xFF16 => self.ch2.nr1,
             0xFF17 => self.ch2.nr2,
             0xFF18 => self.ch2.nr3,
@@ -191,7 +182,6 @@ impl Apu {
             // =========================
             // CH3
             // =========================
-
             0xFF1A => {
                 if self.ch3.enabled {
                     self.ch3.nr30 | 0x80
@@ -208,7 +198,6 @@ impl Apu {
             // =========================
             // CH4
             // =========================
-
             0xFF20 => self.ch4.nr41,
             0xFF21 => self.ch4.nr42,
             0xFF22 => self.ch4.nr43,
@@ -217,20 +206,14 @@ impl Apu {
             // =========================
             // Mixer
             // =========================
-
             0xFF24 => self.nr50,
             0xFF25 => self.nr51,
 
             // =========================
             // NR52
             // =========================
-
             0xFF26 => {
-                let mut value = if self.enabled {
-                    0x80
-                } else {
-                    0x00
-                };
+                let mut value = if self.enabled { 0x80 } else { 0x00 };
 
                 if self.ch1.enabled {
                     value |= 0x01;
@@ -252,9 +235,7 @@ impl Apu {
             }
 
             // Wave RAM
-            0xFF30..=0xFF3F => {
-                self.ch3.wave_ram[(address - 0xFF30) as usize]
-            }
+            0xFF30..=0xFF3F => self.ch3.wave_ram[(address - 0xFF30) as usize],
 
             _ => 0xFF,
         }
@@ -265,7 +246,6 @@ impl Apu {
             // =========================
             // CH1
             // =========================
-
             0xFF10 => {
                 self.ch1.nr0 = value;
             }
@@ -273,8 +253,7 @@ impl Apu {
             0xFF11 => {
                 self.ch1.nr1 = value;
 
-                self.ch1.length_counter =
-                    64 - (value & 0x3F);
+                self.ch1.length_counter = 64 - (value & 0x3F);
             }
 
             0xFF12 => {
@@ -292,8 +271,7 @@ impl Apu {
             0xFF14 => {
                 self.ch1.nr4 = value;
 
-                self.ch1.length_enabled =
-                    value & 0x40 != 0;
+                self.ch1.length_enabled = value & 0x40 != 0;
 
                 if value & 0x80 != 0 {
                     self.ch1.trigger();
@@ -303,12 +281,10 @@ impl Apu {
             // =========================
             // CH2
             // =========================
-
             0xFF16 => {
                 self.ch2.nr1 = value;
 
-                self.ch2.length_counter =
-                    64 - (value & 0x3F);
+                self.ch2.length_counter = 64 - (value & 0x3F);
             }
 
             0xFF17 => {
@@ -326,8 +302,7 @@ impl Apu {
             0xFF19 => {
                 self.ch2.nr4 = value;
 
-                self.ch2.length_enabled =
-                    value & 0x40 != 0;
+                self.ch2.length_enabled = value & 0x40 != 0;
 
                 if value & 0x80 != 0 {
                     self.ch2.trigger();
@@ -337,7 +312,6 @@ impl Apu {
             // =========================
             // CH3
             // =========================
-
             0xFF1A => {
                 self.ch3.nr30 = value;
 
@@ -349,8 +323,7 @@ impl Apu {
             0xFF1B => {
                 self.ch3.nr31 = value;
 
-                self.ch3.length_counter =
-                    256 - value as u16;
+                self.ch3.length_counter = 256 - value as u16;
             }
 
             0xFF1C => {
@@ -364,8 +337,7 @@ impl Apu {
             0xFF1E => {
                 self.ch3.nr34 = value;
 
-                self.ch3.length_enabled =
-                    value & 0x40 != 0;
+                self.ch3.length_enabled = value & 0x40 != 0;
 
                 if value & 0x80 != 0 {
                     self.ch3.trigger();
@@ -375,12 +347,10 @@ impl Apu {
             // =========================
             // CH4
             // =========================
-
             0xFF20 => {
                 self.ch4.nr41 = value;
 
-                self.ch4.length_counter =
-                    64 - (value & 0x3F);
+                self.ch4.length_counter = 64 - (value & 0x3F);
             }
 
             0xFF21 => {
@@ -398,8 +368,7 @@ impl Apu {
             0xFF23 => {
                 self.ch4.nr44 = value;
 
-                self.ch4.length_enabled =
-                    value & 0x40 != 0;
+                self.ch4.length_enabled = value & 0x40 != 0;
 
                 if value & 0x80 != 0 {
                     self.ch4.trigger();
@@ -409,7 +378,6 @@ impl Apu {
             // =========================
             // Mixer
             // =========================
-
             0xFF24 => {
                 self.nr50 = value;
             }
@@ -421,12 +389,10 @@ impl Apu {
             // =========================
             // NR52
             // =========================
-
             0xFF26 => {
                 self.nr52 = value;
 
-                self.enabled =
-                    value & 0x80 != 0;
+                self.enabled = value & 0x80 != 0;
 
                 if !self.enabled {
                     self.ch1.enabled = false;
@@ -444,9 +410,7 @@ impl Apu {
             _ => {}
         }
     }
-    
 }
-
 
 // ============================================================
 // CHANNEL 1
@@ -506,51 +470,44 @@ impl SquareChannel {
     }
 
     fn frequency(&self) -> u16 {
-        ((self.nr4 as u16 & 0x07) << 8)
-            | self.nr3 as u16
+        ((self.nr4 as u16 & 0x07) << 8) | self.nr3 as u16
     }
 
     fn trigger(&mut self) {
-    self.enabled = true;
+        self.enabled = true;
 
-    if self.length_counter == 0 {
-        self.length_counter = 64;
-    }
-
-    self.envelope_volume =
-        (self.nr2 >> 4) & 0x0F;
-
-    self.envelope_timer =
-        self.nr2 & 0x07;
-
-    if self.envelope_timer == 0 {
-        self.envelope_timer = 8;
-    }
-
-    self.frequency_timer =
-        Self::frequency_period(self.frequency());
-
-    self.duty_position = 0;
-
-    if self.has_sweep {
-        self.sweep_shadow_frequency =
-            self.frequency();
-
-        self.sweep_timer =
-            (self.nr0 >> 4) & 0x07;
-
-        if self.sweep_timer == 0 {
-            self.sweep_timer = 8;
+        if self.length_counter == 0 {
+            self.length_counter = 64;
         }
 
-        self.sweep_enabled =
-            (self.nr0 & 0x77) != 0;
-    }
+        self.envelope_volume = (self.nr2 >> 4) & 0x0F;
 
-    if self.nr2 & 0xF8 == 0 {
-        self.enabled = false;
+        self.envelope_timer = self.nr2 & 0x07;
+
+        if self.envelope_timer == 0 {
+            self.envelope_timer = 8;
+        }
+
+        self.frequency_timer = Self::frequency_period(self.frequency());
+
+        self.duty_position = 0;
+
+        if self.has_sweep {
+            self.sweep_shadow_frequency = self.frequency();
+
+            self.sweep_timer = (self.nr0 >> 4) & 0x07;
+
+            if self.sweep_timer == 0 {
+                self.sweep_timer = 8;
+            }
+
+            self.sweep_enabled = (self.nr0 & 0x77) != 0;
+        }
+
+        if self.nr2 & 0xF8 == 0 {
+            self.enabled = false;
+        }
     }
-}
 
     fn frequency_period(frequency: u16) -> u16 {
         let period = 2048u16.saturating_sub(frequency);
@@ -573,17 +530,11 @@ impl SquareChannel {
 
             let consumed = self.frequency_timer;
 
-            cycles = cycles.saturating_sub(
-                consumed as u32
-            );
+            cycles = cycles.saturating_sub(consumed as u32);
 
-            self.frequency_timer =
-                Self::frequency_period(
-                    self.frequency()
-                );
+            self.frequency_timer = Self::frequency_period(self.frequency());
 
-            self.duty_position =
-                (self.duty_position + 1) & 7;
+            self.duty_position = (self.duty_position + 1) & 7;
         }
     }
 
@@ -627,8 +578,8 @@ impl SquareChannel {
 
     fn clock_sweep(&mut self) {
         if !self.has_sweep {
-        return;
-    }
+            return;
+        }
         if !self.sweep_enabled {
             return;
         }
@@ -638,11 +589,9 @@ impl SquareChannel {
         }
 
         if self.sweep_timer == 0 {
-            let period =
-                (self.nr0 >> 4) & 0x07;
+            let period = (self.nr0 >> 4) & 0x07;
 
-            self.sweep_timer =
-                if period == 0 { 8 } else { period };
+            self.sweep_timer = if period == 0 { 8 } else { period };
 
             if period == 0 {
                 return;
@@ -650,32 +599,24 @@ impl SquareChannel {
 
             let shift = self.nr0 & 0x07;
 
-            let delta =
-                self.sweep_shadow_frequency >> shift;
+            let delta = self.sweep_shadow_frequency >> shift;
 
-            let new_frequency =
-                if self.nr0 & 0x08 != 0 {
-                    self.sweep_shadow_frequency
-                        .saturating_sub(delta)
-                } else {
-                    self.sweep_shadow_frequency
-                        .saturating_add(delta)
-                };
+            let new_frequency = if self.nr0 & 0x08 != 0 {
+                self.sweep_shadow_frequency.saturating_sub(delta)
+            } else {
+                self.sweep_shadow_frequency.saturating_add(delta)
+            };
 
             if new_frequency > 2047 {
                 self.enabled = false;
                 return;
             }
 
-            self.sweep_shadow_frequency =
-                new_frequency;
+            self.sweep_shadow_frequency = new_frequency;
 
-            self.nr3 =
-                new_frequency as u8;
+            self.nr3 = new_frequency as u8;
 
-            self.nr4 =
-                (self.nr4 & 0xF8)
-                    | ((new_frequency >> 8) as u8 & 0x07);
+            self.nr4 = (self.nr4 & 0xF8) | ((new_frequency >> 8) as u8 & 0x07);
         }
     }
 
@@ -691,8 +632,7 @@ impl SquareChannel {
             _ => 0b01111110,
         };
 
-        let bit =
-            (duty >> self.duty_position) & 1;
+        let bit = (duty >> self.duty_position) & 1;
 
         if bit == 0 {
             -(self.envelope_volume as f32) / 15.0
@@ -701,7 +641,6 @@ impl SquareChannel {
         }
     }
 }
-
 
 // ============================================================
 // CHANNEL 3
@@ -726,7 +665,6 @@ pub(crate) struct WaveChannel {
 }
 
 impl WaveChannel {
-    
     fn new() -> Self {
         Self {
             enabled: false,
@@ -746,10 +684,9 @@ impl WaveChannel {
             wave_ram: [0; 16],
         }
     }
-    
+
     fn frequency(&self) -> u16 {
-        ((self.nr34 as u16 & 0x07) << 8)
-            | self.nr33 as u16
+        ((self.nr34 as u16 & 0x07) << 8) | self.nr33 as u16
     }
 
     fn frequency_period(frequency: u16) -> u16 {
@@ -757,7 +694,7 @@ impl WaveChannel {
 
         period.saturating_mul(2)
     }
-    
+
     fn trigger(&mut self) {
         if self.nr30 & 0x80 == 0 {
             self.enabled = false;
@@ -770,12 +707,11 @@ impl WaveChannel {
             self.length_counter = 256;
         }
 
-        self.frequency_timer =
-            Self::frequency_period(self.frequency());
+        self.frequency_timer = Self::frequency_period(self.frequency());
 
         self.position = 0;
     }
-    
+
     fn step(&mut self, cycles: u32) {
         if !self.enabled {
             return;
@@ -791,20 +727,14 @@ impl WaveChannel {
 
             let consumed = self.frequency_timer;
 
-            cycles = cycles.saturating_sub(
-                consumed as u32
-            );
+            cycles = cycles.saturating_sub(consumed as u32);
 
-            self.frequency_timer =
-                Self::frequency_period(
-                    self.frequency()
-                );
+            self.frequency_timer = Self::frequency_period(self.frequency());
 
-            self.position =
-                (self.position + 1) & 31;
+            self.position = (self.position + 1) & 31;
         }
     }
-    
+
     fn clock_length(&mut self) {
         if !self.length_enabled {
             return;
@@ -831,8 +761,7 @@ impl WaveChannel {
             byte & 0x0F
         };
 
-        let volume_code =
-            (self.nr32 >> 5) & 0x03;
+        let volume_code = (self.nr32 >> 5) & 0x03;
 
         let sample = match volume_code {
             0 => 0,
@@ -844,11 +773,7 @@ impl WaveChannel {
 
         (sample as f32 / 15.0) * 2.0 - 1.0
     }
-
-    
 }
-
-
 
 // ============================================================
 // CHANNEL 4
@@ -902,11 +827,9 @@ impl NoiseChannel {
             self.length_counter = 64;
         }
 
-        self.envelope_volume =
-            (self.nr42 >> 4) & 0x0F;
+        self.envelope_volume = (self.nr42 >> 4) & 0x0F;
 
-        self.envelope_timer =
-            self.nr42 & 0x07;
+        self.envelope_timer = self.nr42 & 0x07;
 
         if self.envelope_timer == 0 {
             self.envelope_timer = 8;
@@ -914,9 +837,8 @@ impl NoiseChannel {
 
         self.lfsr = 0x7FFF;
 
-        self.frequency_timer =
-            self.frequency_period();
-        
+        self.frequency_timer = self.frequency_period();
+
         if self.nr42 & 0xF8 == 0 {
             self.enabled = false;
         }
@@ -936,8 +858,7 @@ impl NoiseChannel {
 
         let shift = (self.nr43 >> 4) & 0x0F;
 
-        let period =
-            (divisor as u32) << shift;
+        let period = (divisor as u32) << shift;
 
         period.min(0xFFFF) as u16
     }
@@ -957,20 +878,16 @@ impl NoiseChannel {
 
             let consumed = self.frequency_timer;
 
-            cycles =
-                cycles.saturating_sub(consumed as u32);
+            cycles = cycles.saturating_sub(consumed as u32);
 
-            self.frequency_timer =
-                self.frequency_period();
+            self.frequency_timer = self.frequency_period();
 
             self.clock_lfsr();
         }
     }
 
     fn clock_lfsr(&mut self) {
-        let xor =
-            (self.lfsr & 1)
-            ^ ((self.lfsr >> 1) & 1);
+        let xor = (self.lfsr & 1) ^ ((self.lfsr >> 1) & 1);
 
         self.lfsr >>= 1;
 
@@ -1033,13 +950,8 @@ impl NoiseChannel {
         // Bit 0 LFSR jest wyjściem kanału.
         let bit = self.lfsr & 1;
 
-        let volume =
-            self.envelope_volume as f32 / 15.0;
+        let volume = self.envelope_volume as f32 / 15.0;
 
-        if bit == 0 {
-            volume
-        } else {
-            -volume
-        }
+        if bit == 0 { volume } else { -volume }
     }
 }

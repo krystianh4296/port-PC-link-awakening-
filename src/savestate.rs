@@ -3,10 +3,7 @@ use std::io::Write;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    bus::Bus,
-    cpu::Cpu,
-};
+use crate::{bus::Bus, cpu::Cpu};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SaveState {
@@ -64,7 +61,6 @@ pub struct BusState {
     // ========================================================
     // PPU / LCD
     // ========================================================
-
     pub ly: u8,
     pub lyc: u8,
     pub ppu_mode: u8,
@@ -88,7 +84,6 @@ pub struct BusState {
     // ========================================================
     // TIMER
     // ========================================================
-
     pub div: u8,
     pub tima: u8,
     pub tma: u8,
@@ -100,13 +95,11 @@ pub struct BusState {
     // ========================================================
     // CARTRIDGE / MBC1
     // ========================================================
-
     pub mbc1: Mbc1State,
 
     // ========================================================
     // APU
     // ========================================================
-
     pub apu: ApuState,
 }
 
@@ -310,14 +303,11 @@ impl SaveState {
                 apu: ApuState {
                     enabled: bus.apu.enabled,
 
-                    frame_sequencer_cycles:
-                        bus.apu.frame_sequencer_cycles,
+                    frame_sequencer_cycles: bus.apu.frame_sequencer_cycles,
 
-                    frame_sequencer_step:
-                        bus.apu.frame_sequencer_step,
+                    frame_sequencer_step: bus.apu.frame_sequencer_step,
 
-                    sample_cycles:
-                        bus.apu.sample_cycles,
+                    sample_cycles: bus.apu.sample_cycles,
 
                     ch1: SquareChannelState {
                         enabled: bus.apu.ch1.enabled,
@@ -328,35 +318,25 @@ impl SaveState {
                         nr3: bus.apu.ch1.nr3,
                         nr4: bus.apu.ch1.nr4,
 
-                        length_counter:
-                            bus.apu.ch1.length_counter,
+                        length_counter: bus.apu.ch1.length_counter,
 
-                        length_enabled:
-                            bus.apu.ch1.length_enabled,
+                        length_enabled: bus.apu.ch1.length_enabled,
 
-                        envelope_volume:
-                            bus.apu.ch1.envelope_volume,
+                        envelope_volume: bus.apu.ch1.envelope_volume,
 
-                        envelope_timer:
-                            bus.apu.ch1.envelope_timer,
+                        envelope_timer: bus.apu.ch1.envelope_timer,
 
-                        frequency_timer:
-                            bus.apu.ch1.frequency_timer,
+                        frequency_timer: bus.apu.ch1.frequency_timer,
 
-                        duty_position:
-                            bus.apu.ch1.duty_position,
+                        duty_position: bus.apu.ch1.duty_position,
 
-                        sweep_timer:
-                            bus.apu.ch1.sweep_timer,
+                        sweep_timer: bus.apu.ch1.sweep_timer,
 
-                        sweep_shadow_frequency:
-                            bus.apu.ch1.sweep_shadow_frequency,
+                        sweep_shadow_frequency: bus.apu.ch1.sweep_shadow_frequency,
 
-                        sweep_enabled:
-                            bus.apu.ch1.sweep_enabled,
+                        sweep_enabled: bus.apu.ch1.sweep_enabled,
 
-                        has_sweep:
-                            bus.apu.ch1.has_sweep,
+                        has_sweep: bus.apu.ch1.has_sweep,
                     },
 
                     ch2: SquareChannelState {
@@ -368,35 +348,25 @@ impl SaveState {
                         nr3: bus.apu.ch2.nr3,
                         nr4: bus.apu.ch2.nr4,
 
-                        length_counter:
-                            bus.apu.ch2.length_counter,
+                        length_counter: bus.apu.ch2.length_counter,
 
-                        length_enabled:
-                            bus.apu.ch2.length_enabled,
+                        length_enabled: bus.apu.ch2.length_enabled,
 
-                        envelope_volume:
-                            bus.apu.ch2.envelope_volume,
+                        envelope_volume: bus.apu.ch2.envelope_volume,
 
-                        envelope_timer:
-                            bus.apu.ch2.envelope_timer,
+                        envelope_timer: bus.apu.ch2.envelope_timer,
 
-                        frequency_timer:
-                            bus.apu.ch2.frequency_timer,
+                        frequency_timer: bus.apu.ch2.frequency_timer,
 
-                        duty_position:
-                            bus.apu.ch2.duty_position,
+                        duty_position: bus.apu.ch2.duty_position,
 
-                        sweep_timer:
-                            bus.apu.ch2.sweep_timer,
+                        sweep_timer: bus.apu.ch2.sweep_timer,
 
-                        sweep_shadow_frequency:
-                            bus.apu.ch2.sweep_shadow_frequency,
+                        sweep_shadow_frequency: bus.apu.ch2.sweep_shadow_frequency,
 
-                        sweep_enabled:
-                            bus.apu.ch2.sweep_enabled,
+                        sweep_enabled: bus.apu.ch2.sweep_enabled,
 
-                        has_sweep:
-                            bus.apu.ch2.has_sweep,
+                        has_sweep: bus.apu.ch2.has_sweep,
                     },
 
                     ch3: WaveChannelState {
@@ -408,20 +378,15 @@ impl SaveState {
                         nr33: bus.apu.ch3.nr33,
                         nr34: bus.apu.ch3.nr34,
 
-                        length_counter:
-                            bus.apu.ch3.length_counter,
+                        length_counter: bus.apu.ch3.length_counter,
 
-                        length_enabled:
-                            bus.apu.ch3.length_enabled,
+                        length_enabled: bus.apu.ch3.length_enabled,
 
-                        frequency_timer:
-                            bus.apu.ch3.frequency_timer,
+                        frequency_timer: bus.apu.ch3.frequency_timer,
 
-                        position:
-                            bus.apu.ch3.position,
+                        position: bus.apu.ch3.position,
 
-                        wave_ram:
-                            bus.apu.ch3.wave_ram,
+                        wave_ram: bus.apu.ch3.wave_ram,
                     },
 
                     ch4: NoiseChannelState {
@@ -432,31 +397,24 @@ impl SaveState {
                         nr43: bus.apu.ch4.nr43,
                         nr44: bus.apu.ch4.nr44,
 
-                        length_counter:
-                            bus.apu.ch4.length_counter,
+                        length_counter: bus.apu.ch4.length_counter,
 
-                        length_enabled:
-                            bus.apu.ch4.length_enabled,
+                        length_enabled: bus.apu.ch4.length_enabled,
 
-                        envelope_volume:
-                            bus.apu.ch4.envelope_volume,
+                        envelope_volume: bus.apu.ch4.envelope_volume,
 
-                        envelope_timer:
-                            bus.apu.ch4.envelope_timer,
+                        envelope_timer: bus.apu.ch4.envelope_timer,
 
-                        frequency_timer:
-                            bus.apu.ch4.frequency_timer,
+                        frequency_timer: bus.apu.ch4.frequency_timer,
 
-                        lfsr:
-                            bus.apu.ch4.lfsr,
+                        lfsr: bus.apu.ch4.lfsr,
                     },
 
                     nr50: bus.apu.nr50,
                     nr51: bus.apu.nr51,
                     nr52: bus.apu.nr52,
 
-                    sample_counter:
-                        bus.apu.sample_counter,
+                    sample_counter: bus.apu.sample_counter,
                 },
             },
         }
@@ -554,230 +512,163 @@ impl SaveState {
         // MBC1
         // ----------------------------------------------------
 
-        bus.mbc1.rom_bank_low =
-            self.bus.mbc1.rom_bank_low;
+        bus.mbc1.rom_bank_low = self.bus.mbc1.rom_bank_low;
 
-        bus.mbc1.rom_bank_high =
-            self.bus.mbc1.rom_bank_high;
+        bus.mbc1.rom_bank_high = self.bus.mbc1.rom_bank_high;
 
-        bus.mbc1.banking_mode =
-            self.bus.mbc1.banking_mode;
+        bus.mbc1.banking_mode = self.bus.mbc1.banking_mode;
 
-        bus.mbc1.ram_enabled =
-            self.bus.mbc1.ram_enabled;
+        bus.mbc1.ram_enabled = self.bus.mbc1.ram_enabled;
 
-        bus.mbc1.ram =
-            self.bus.mbc1.ram;
+        bus.mbc1.ram = self.bus.mbc1.ram;
 
         // ----------------------------------------------------
         // APU
         // ----------------------------------------------------
 
-        bus.apu.enabled =
-            self.bus.apu.enabled;
+        bus.apu.enabled = self.bus.apu.enabled;
 
-        bus.apu.frame_sequencer_cycles =
-            self.bus.apu.frame_sequencer_cycles;
+        bus.apu.frame_sequencer_cycles = self.bus.apu.frame_sequencer_cycles;
 
-        bus.apu.frame_sequencer_step =
-            self.bus.apu.frame_sequencer_step;
+        bus.apu.frame_sequencer_step = self.bus.apu.frame_sequencer_step;
 
-        bus.apu.sample_cycles =
-            self.bus.apu.sample_cycles;
+        bus.apu.sample_cycles = self.bus.apu.sample_cycles;
 
         // ----------------------------------------------------
         // CH1
         // ----------------------------------------------------
 
-        bus.apu.ch1.enabled =
-            self.bus.apu.ch1.enabled;
+        bus.apu.ch1.enabled = self.bus.apu.ch1.enabled;
 
-        bus.apu.ch1.nr0 =
-            self.bus.apu.ch1.nr0;
+        bus.apu.ch1.nr0 = self.bus.apu.ch1.nr0;
 
-        bus.apu.ch1.nr1 =
-            self.bus.apu.ch1.nr1;
+        bus.apu.ch1.nr1 = self.bus.apu.ch1.nr1;
 
-        bus.apu.ch1.nr2 =
-            self.bus.apu.ch1.nr2;
+        bus.apu.ch1.nr2 = self.bus.apu.ch1.nr2;
 
-        bus.apu.ch1.nr3 =
-            self.bus.apu.ch1.nr3;
+        bus.apu.ch1.nr3 = self.bus.apu.ch1.nr3;
 
-        bus.apu.ch1.nr4 =
-            self.bus.apu.ch1.nr4;
+        bus.apu.ch1.nr4 = self.bus.apu.ch1.nr4;
 
-        bus.apu.ch1.length_counter =
-            self.bus.apu.ch1.length_counter;
+        bus.apu.ch1.length_counter = self.bus.apu.ch1.length_counter;
 
-        bus.apu.ch1.length_enabled =
-            self.bus.apu.ch1.length_enabled;
+        bus.apu.ch1.length_enabled = self.bus.apu.ch1.length_enabled;
 
-        bus.apu.ch1.envelope_volume =
-            self.bus.apu.ch1.envelope_volume;
+        bus.apu.ch1.envelope_volume = self.bus.apu.ch1.envelope_volume;
 
-        bus.apu.ch1.envelope_timer =
-            self.bus.apu.ch1.envelope_timer;
+        bus.apu.ch1.envelope_timer = self.bus.apu.ch1.envelope_timer;
 
-        bus.apu.ch1.frequency_timer =
-            self.bus.apu.ch1.frequency_timer;
+        bus.apu.ch1.frequency_timer = self.bus.apu.ch1.frequency_timer;
 
-        bus.apu.ch1.duty_position =
-            self.bus.apu.ch1.duty_position;
+        bus.apu.ch1.duty_position = self.bus.apu.ch1.duty_position;
 
-        bus.apu.ch1.sweep_timer =
-            self.bus.apu.ch1.sweep_timer;
+        bus.apu.ch1.sweep_timer = self.bus.apu.ch1.sweep_timer;
 
-        bus.apu.ch1.sweep_shadow_frequency =
-            self.bus.apu.ch1.sweep_shadow_frequency;
+        bus.apu.ch1.sweep_shadow_frequency = self.bus.apu.ch1.sweep_shadow_frequency;
 
-        bus.apu.ch1.sweep_enabled =
-            self.bus.apu.ch1.sweep_enabled;
+        bus.apu.ch1.sweep_enabled = self.bus.apu.ch1.sweep_enabled;
 
-        bus.apu.ch1.has_sweep =
-            self.bus.apu.ch1.has_sweep;
+        bus.apu.ch1.has_sweep = self.bus.apu.ch1.has_sweep;
 
         // ----------------------------------------------------
         // CH2
         // ----------------------------------------------------
 
-        bus.apu.ch2.enabled =
-            self.bus.apu.ch2.enabled;
+        bus.apu.ch2.enabled = self.bus.apu.ch2.enabled;
 
-        bus.apu.ch2.nr0 =
-            self.bus.apu.ch2.nr0;
+        bus.apu.ch2.nr0 = self.bus.apu.ch2.nr0;
 
-        bus.apu.ch2.nr1 =
-            self.bus.apu.ch2.nr1;
+        bus.apu.ch2.nr1 = self.bus.apu.ch2.nr1;
 
-        bus.apu.ch2.nr2 =
-            self.bus.apu.ch2.nr2;
+        bus.apu.ch2.nr2 = self.bus.apu.ch2.nr2;
 
-        bus.apu.ch2.nr3 =
-            self.bus.apu.ch2.nr3;
+        bus.apu.ch2.nr3 = self.bus.apu.ch2.nr3;
 
-        bus.apu.ch2.nr4 =
-            self.bus.apu.ch2.nr4;
+        bus.apu.ch2.nr4 = self.bus.apu.ch2.nr4;
 
-        bus.apu.ch2.length_counter =
-            self.bus.apu.ch2.length_counter;
+        bus.apu.ch2.length_counter = self.bus.apu.ch2.length_counter;
 
-        bus.apu.ch2.length_enabled =
-            self.bus.apu.ch2.length_enabled;
+        bus.apu.ch2.length_enabled = self.bus.apu.ch2.length_enabled;
 
-        bus.apu.ch2.envelope_volume =
-            self.bus.apu.ch2.envelope_volume;
+        bus.apu.ch2.envelope_volume = self.bus.apu.ch2.envelope_volume;
 
-        bus.apu.ch2.envelope_timer =
-            self.bus.apu.ch2.envelope_timer;
+        bus.apu.ch2.envelope_timer = self.bus.apu.ch2.envelope_timer;
 
-        bus.apu.ch2.frequency_timer =
-            self.bus.apu.ch2.frequency_timer;
+        bus.apu.ch2.frequency_timer = self.bus.apu.ch2.frequency_timer;
 
-        bus.apu.ch2.duty_position =
-            self.bus.apu.ch2.duty_position;
+        bus.apu.ch2.duty_position = self.bus.apu.ch2.duty_position;
 
-        bus.apu.ch2.sweep_timer =
-            self.bus.apu.ch2.sweep_timer;
+        bus.apu.ch2.sweep_timer = self.bus.apu.ch2.sweep_timer;
 
-        bus.apu.ch2.sweep_shadow_frequency =
-            self.bus.apu.ch2.sweep_shadow_frequency;
+        bus.apu.ch2.sweep_shadow_frequency = self.bus.apu.ch2.sweep_shadow_frequency;
 
-        bus.apu.ch2.sweep_enabled =
-            self.bus.apu.ch2.sweep_enabled;
+        bus.apu.ch2.sweep_enabled = self.bus.apu.ch2.sweep_enabled;
 
-        bus.apu.ch2.has_sweep =
-            self.bus.apu.ch2.has_sweep;
+        bus.apu.ch2.has_sweep = self.bus.apu.ch2.has_sweep;
 
         // ----------------------------------------------------
         // CH3
         // ----------------------------------------------------
 
-        bus.apu.ch3.enabled =
-            self.bus.apu.ch3.enabled;
+        bus.apu.ch3.enabled = self.bus.apu.ch3.enabled;
 
-        bus.apu.ch3.nr30 =
-            self.bus.apu.ch3.nr30;
+        bus.apu.ch3.nr30 = self.bus.apu.ch3.nr30;
 
-        bus.apu.ch3.nr31 =
-            self.bus.apu.ch3.nr31;
+        bus.apu.ch3.nr31 = self.bus.apu.ch3.nr31;
 
-        bus.apu.ch3.nr32 =
-            self.bus.apu.ch3.nr32;
+        bus.apu.ch3.nr32 = self.bus.apu.ch3.nr32;
 
-        bus.apu.ch3.nr33 =
-            self.bus.apu.ch3.nr33;
+        bus.apu.ch3.nr33 = self.bus.apu.ch3.nr33;
 
-        bus.apu.ch3.nr34 =
-            self.bus.apu.ch3.nr34;
+        bus.apu.ch3.nr34 = self.bus.apu.ch3.nr34;
 
-        bus.apu.ch3.length_counter =
-            self.bus.apu.ch3.length_counter;
+        bus.apu.ch3.length_counter = self.bus.apu.ch3.length_counter;
 
-        bus.apu.ch3.length_enabled =
-            self.bus.apu.ch3.length_enabled;
+        bus.apu.ch3.length_enabled = self.bus.apu.ch3.length_enabled;
 
-        bus.apu.ch3.frequency_timer =
-            self.bus.apu.ch3.frequency_timer;
+        bus.apu.ch3.frequency_timer = self.bus.apu.ch3.frequency_timer;
 
-        bus.apu.ch3.position =
-            self.bus.apu.ch3.position;
+        bus.apu.ch3.position = self.bus.apu.ch3.position;
 
-        bus.apu.ch3.wave_ram =
-            self.bus.apu.ch3.wave_ram;
+        bus.apu.ch3.wave_ram = self.bus.apu.ch3.wave_ram;
 
         // ----------------------------------------------------
         // CH4
         // ----------------------------------------------------
 
-        bus.apu.ch4.enabled =
-            self.bus.apu.ch4.enabled;
+        bus.apu.ch4.enabled = self.bus.apu.ch4.enabled;
 
-        bus.apu.ch4.nr41 =
-            self.bus.apu.ch4.nr41;
+        bus.apu.ch4.nr41 = self.bus.apu.ch4.nr41;
 
-        bus.apu.ch4.nr42 =
-            self.bus.apu.ch4.nr42;
+        bus.apu.ch4.nr42 = self.bus.apu.ch4.nr42;
 
-        bus.apu.ch4.nr43 =
-            self.bus.apu.ch4.nr43;
+        bus.apu.ch4.nr43 = self.bus.apu.ch4.nr43;
 
-        bus.apu.ch4.nr44 =
-            self.bus.apu.ch4.nr44;
+        bus.apu.ch4.nr44 = self.bus.apu.ch4.nr44;
 
-        bus.apu.ch4.length_counter =
-            self.bus.apu.ch4.length_counter;
+        bus.apu.ch4.length_counter = self.bus.apu.ch4.length_counter;
 
-        bus.apu.ch4.length_enabled =
-            self.bus.apu.ch4.length_enabled;
+        bus.apu.ch4.length_enabled = self.bus.apu.ch4.length_enabled;
 
-        bus.apu.ch4.envelope_volume =
-            self.bus.apu.ch4.envelope_volume;
+        bus.apu.ch4.envelope_volume = self.bus.apu.ch4.envelope_volume;
 
-        bus.apu.ch4.envelope_timer =
-            self.bus.apu.ch4.envelope_timer;
+        bus.apu.ch4.envelope_timer = self.bus.apu.ch4.envelope_timer;
 
-        bus.apu.ch4.frequency_timer =
-            self.bus.apu.ch4.frequency_timer;
+        bus.apu.ch4.frequency_timer = self.bus.apu.ch4.frequency_timer;
 
-        bus.apu.ch4.lfsr =
-            self.bus.apu.ch4.lfsr;
+        bus.apu.ch4.lfsr = self.bus.apu.ch4.lfsr;
 
         // ----------------------------------------------------
         // APU MIXER
         // ----------------------------------------------------
 
-        bus.apu.nr50 =
-            self.bus.apu.nr50;
+        bus.apu.nr50 = self.bus.apu.nr50;
 
-        bus.apu.nr51 =
-            self.bus.apu.nr51;
+        bus.apu.nr51 = self.bus.apu.nr51;
 
-        bus.apu.nr52 =
-            self.bus.apu.nr52;
+        bus.apu.nr52 = self.bus.apu.nr52;
 
-        bus.apu.sample_counter =
-            self.bus.apu.sample_counter;
+        bus.apu.sample_counter = self.bus.apu.sample_counter;
     }
 }
 
@@ -839,10 +730,7 @@ pub fn compare_bus(bus1: &Bus, bus2: &Bus) -> Result<(), String> {
     macro_rules! check {
         ($field:ident) => {
             if bus1.$field != bus2.$field {
-                return Err(format!(
-                    "BUS {} różni się",
-                    stringify!($field)
-                ));
+                return Err(format!("BUS {} różni się", stringify!($field)));
             }
         };
     }

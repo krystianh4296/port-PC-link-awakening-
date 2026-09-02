@@ -1,7 +1,7 @@
-use crate::rom::{Mbc1, Rom};
 use crate::apu::Apu;
 use crate::audio::Audio;
-use crate::save::{save_sram, load_sram};
+use crate::rom::{Mbc1, Rom};
+use crate::save::{load_sram, save_sram};
 
 pub struct Bus {
     pub rom: Rom,
@@ -134,130 +134,127 @@ impl Bus {
     }
 
     pub fn step_lcd(&mut self, cycles: u32, buffer: &mut [u32]) -> bool {
-    if self.lcdc & 0x80 == 0 {
-        self.ly = 0;
-        self.lcd_cycles = 0;
-        self.ppu_mode = 0;
-        self.update_stat();
-        return false;
-    }
-
-    self.lcd_cycles += cycles;
-
-    let mut frame_ready = false;
-
-    loop {
-        let mode_length = match self.ppu_mode {
-            2 => 80,
-            3 => 172,
-            0 => 204,
-            1 => 456,
-            _ => 456,
-        };
-
-        if self.lcd_cycles < mode_length {
-            break;
+        if self.lcdc & 0x80 == 0 {
+            self.ly = 0;
+            self.lcd_cycles = 0;
+            self.ppu_mode = 0;
+            self.update_stat();
+            return false;
         }
 
-        self.lcd_cycles -= mode_length;
+        self.lcd_cycles += cycles;
 
-        match self.ppu_mode {
-            // OAM scan
-            2 => {
-                self.ppu_mode = 3;
+        let mut frame_ready = false;
+
+        loop {
+            let mode_length = match self.ppu_mode {
+                2 => 80,
+                3 => 172,
+                0 => 204,
+                1 => 456,
+                _ => 456,
+            };
+
+            if self.lcd_cycles < mode_length {
+                break;
             }
 
-            // Drawing
-            3 => {
-                if self.ly < 144 {
-                    self.render_scanline(
-                        self.ly as usize,
-                        buffer,
-                    );
+            self.lcd_cycles -= mode_length;
+
+            match self.ppu_mode {
+                // OAM scan
+                2 => {
+                    self.ppu_mode = 3;
                 }
 
-                self.ppu_mode = 0;
-            }
+                // Drawing
+                3 => {
+                    if self.ly < 144 {
+                        self.render_scanline(self.ly as usize, buffer);
+                    }
 
-            // H-Blank
-            0 => {
-                self.ly = self.ly.wrapping_add(1);
-
-                if self.ly == 144 {
-                    // V-Blank
-                    self.ppu_mode = 1;
-                    self.if_reg |= 0x01;
-
-                    frame_ready = true;
-
-                    self.debug_frames += 1;
-                } else {
-                    self.ppu_mode = 2;
+                    self.ppu_mode = 0;
                 }
-            }
 
-            // V-Blank
-            1 => {
-                self.ly = self.ly.wrapping_add(1);
+                // H-Blank
+                0 => {
+                    self.ly = self.ly.wrapping_add(1);
 
-                if self.ly > 153 {
+                    if self.ly == 144 {
+                        // V-Blank
+                        self.ppu_mode = 1;
+                        self.if_reg |= 0x01;
+
+                        frame_ready = true;
+
+                        self.debug_frames += 1;
+                    } else {
+                        self.ppu_mode = 2;
+                    }
+                }
+
+                // V-Blank
+                1 => {
+                    self.ly = self.ly.wrapping_add(1);
+
+                    if self.ly > 153 {
+                        self.ly = 0;
+                        self.ppu_mode = 2;
+                    }
+                }
+
+                _ => {
                     self.ly = 0;
                     self.ppu_mode = 2;
                 }
             }
 
-            _ => {
-                self.ly = 0;
-                self.ppu_mode = 2;
-            }
+            self.update_stat();
         }
 
-        self.update_stat();
+        frame_ready
     }
-
-    frame_ready
-}
 
     fn update_stat(&mut self) {
-    // Zapamiętujemy poprzedni stan źródła przerwania STAT.
-    let old_stat_irq = {
+        // Zapamiętujemy poprzedni stan źródła przerwania STAT.
+        let old_stat_irq = {
+            let coincidence = self.ly == self.lyc;
+
+            (self.stat & 0x40 != 0 && coincidence)
+                || (self.stat & 0x20 != 0 && self.ppu_mode == 2)
+                || (self.stat & 0x10 != 0 && self.ppu_mode == 1)
+                || (self.stat & 0x08 != 0 && self.ppu_mode == 0)
+        };
+
+        // Zachowujemy tylko bity konfiguracyjne STAT:
+        // bit 6 = LYC=LY interrupt
+        // bit 5 = Mode 2 interrupt
+        // bit 4 = Mode 1 interrupt
+        // bit 3 = Mode 0 interrupt
+        let interrupt_enable = self.stat & 0x78;
+
         let coincidence = self.ly == self.lyc;
 
-        (self.stat & 0x40 != 0 && coincidence)
-            || (self.stat & 0x20 != 0 && self.ppu_mode == 2)
-            || (self.stat & 0x10 != 0 && self.ppu_mode == 1)
-            || (self.stat & 0x08 != 0 && self.ppu_mode == 0)
-    };
+        self.stat = 0x80 | interrupt_enable | (self.ppu_mode & 0x03);
 
-    // Zachowujemy tylko bity konfiguracyjne STAT:
-    // bit 6 = LYC=LY interrupt
-    // bit 5 = Mode 2 interrupt
-    // bit 4 = Mode 1 interrupt
-    // bit 3 = Mode 0 interrupt
-    let interrupt_enable = self.stat & 0x78;
+        if coincidence {
+            self.stat |= 0x04;
+        }
 
-    let coincidence = self.ly == self.lyc;
+        // Obliczamy nowy stan źródła IRQ STAT.
+        let new_stat_irq = {
+            (self.stat & 0x40 != 0 && coincidence)
+                || (self.stat & 0x20 != 0 && self.ppu_mode == 2)
+                || (self.stat & 0x10 != 0 && self.ppu_mode == 1)
+                || (self.stat & 0x08 != 0 && self.ppu_mode == 0)
+        };
 
-    self.stat = 0x80 | interrupt_enable | (self.ppu_mode & 0x03);
-
-    if coincidence {
-        self.stat |= 0x04;
+        // STAT IRQ generuje się przy przejściu:
+        // false -> true
+        if new_stat_irq && !old_stat_irq {
+            self.if_reg |= 0x02;
+        }
     }
-
-    // Obliczamy nowy stan źródła IRQ STAT.
-    let new_stat_irq = {
-        (self.stat & 0x40 != 0 && coincidence)
-            || (self.stat & 0x20 != 0 && self.ppu_mode == 2)
-            || (self.stat & 0x10 != 0 && self.ppu_mode == 1)
-            || (self.stat & 0x08 != 0 && self.ppu_mode == 0)
-    };
-
-    // STAT IRQ generuje się przy przejściu:
-    // false -> true
-    if new_stat_irq && !old_stat_irq {
-        self.if_reg |= 0x02;
-    }
-}
 
     fn joyp_value(&self) -> u8 {
         let mut low = 0x0F;
@@ -482,7 +479,8 @@ impl Bus {
                 let bg_y = (screen_y + self.scy as usize) & 0xFF;
                 let tile_number = self.vram[tile_map_base + (bg_y / 8) * 32 + (bg_x / 8)];
                 let bit = 7 - (bg_x & 7);
-                color_ids[screen_x] = self.tile_pixel(tile_number, bg_y & 7, bit, unsigned_tile_data);
+                color_ids[screen_x] =
+                    self.tile_pixel(tile_number, bg_y & 7, bit, unsigned_tile_data);
             }
         }
 
@@ -551,11 +549,7 @@ impl Bus {
             let behind_bg = attrs & 0x80 != 0;
 
             let row = (line as i32 - sprite_y) as usize;
-            let sprite_row = if flip_y {
-                sprite_height - 1 - row
-            } else {
-                row
-            };
+            let sprite_row = if flip_y { sprite_height - 1 - row } else { row };
 
             if sprite_row >= sprite_height {
                 continue;
@@ -630,14 +624,14 @@ impl Bus {
             }
         }
     }
-    
-    pub fn save_game(&self) {
-    save_sram(self);
-}
 
-pub fn load_game(&mut self) {
-    load_sram(self);
-}
+    pub fn save_game(&self) {
+        save_sram(self);
+    }
+
+    pub fn load_game(&mut self) {
+        load_sram(self);
+    }
 
     pub fn set_audio(&mut self, audio: Audio) {
         self.apu.set_audio(audio);

@@ -17,8 +17,7 @@ impl Audio {
 
         let player = Player::connect_new(stream.mixer());
 
-        let buffer =
-            Arc::new(Mutex::new(VecDeque::with_capacity(48_000)));
+        let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(48_000)));
 
         let source = AudioSource {
             buffer: buffer.clone(),
@@ -51,14 +50,14 @@ impl Iterator for AudioSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-    let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().unwrap();
 
-    if buffer.is_empty() {
-        return Some(0.0);
+        if buffer.is_empty() {
+            return Some(0.0);
+        }
+
+        Some(buffer.pop_front().unwrap())
     }
-
-    Some(buffer.pop_front().unwrap())
-}
 }
 
 impl Source for AudioSource {

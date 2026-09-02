@@ -1,8 +1,8 @@
 use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::savestate::{
-    ApuState, BusState, CpuState, Mbc1State, NoiseChannelState,
-    SaveState, SquareChannelState, WaveChannelState,
+    ApuState, BusState, CpuState, Mbc1State, NoiseChannelState, SaveState, SquareChannelState,
+    WaveChannelState,
 };
 
 #[derive(Clone, Copy)]
@@ -42,41 +42,27 @@ impl DebugSnapshot {
         }
     }
 
-    pub fn diff_with_options(
-        &self,
-        other: &Self,
-        options: DiffOptions,
-    ) -> Vec<String> {
+    pub fn diff_with_options(&self, other: &Self, options: DiffOptions) -> Vec<String> {
         let mut differences = Vec::new();
 
         diff_cpu(&self.state.cpu, &other.state.cpu, &mut differences);
-        diff_bus(
-            &self.state.bus,
-            &other.state.bus,
-            &mut differences,
-            options,
-        );
+        diff_bus(&self.state.bus, &other.state.bus, &mut differences, options);
 
         if options.show_opcode_counts {
             for i in 0..256 {
                 if self.opcode_counts[i] != other.opcode_counts[i] {
                     differences.push(format!(
                         "CPU.opcode_counts[{:02X}]: {} != {}",
-                        i,
-                        self.opcode_counts[i],
-                        other.opcode_counts[i]
+                        i, self.opcode_counts[i], other.opcode_counts[i]
                     ));
                 }
             }
         }
 
-        if options.show_debug_counters
-            && self.debug_frames != other.debug_frames
-        {
+        if options.show_debug_counters && self.debug_frames != other.debug_frames {
             differences.push(format!(
                 "Bus.debug_frames: {} != {}",
-                self.debug_frames,
-                other.debug_frames
+                self.debug_frames, other.debug_frames
             ));
         }
 
@@ -96,12 +82,7 @@ impl DebugSnapshot {
         )
     }
 
-    pub fn compare_with(
-        &self,
-        cpu: &Cpu,
-        bus: &Bus,
-        options: DiffOptions,
-    ) -> Vec<String> {
+    pub fn compare_with(&self, cpu: &Cpu, bus: &Bus, options: DiffOptions) -> Vec<String> {
         let current = Self::capture(cpu, bus);
         self.diff_with_options(&current, options)
     }
@@ -118,10 +99,7 @@ impl DebugSnapshot {
             return;
         }
 
-        println!(
-            "DEBUG SNAPSHOT: wykryto {} różnic:",
-            differences.len()
-        );
+        println!("DEBUG SNAPSHOT: wykryto {} różnic:", differences.len());
 
         for difference in differences {
             println!("  {}", difference);
@@ -135,7 +113,9 @@ fn diff_cpu(a: &CpuState, b: &CpuState, out: &mut Vec<String>) {
             if a.$field != b.$field {
                 out.push(format!(
                     "CPU.{}: {:?} != {:?}",
-                    stringify!($field), a.$field, b.$field
+                    stringify!($field),
+                    a.$field,
+                    b.$field
                 ));
             }
         };
@@ -156,14 +136,21 @@ fn diff_cpu(a: &CpuState, b: &CpuState, out: &mut Vec<String>) {
     check!(halted);
 }
 
-fn diff_bus(
-    a: &BusState,
-    b: &BusState,
-    out: &mut Vec<String>,
-    options: DiffOptions,
-) {
-    diff_bytes("Bus.vram", &a.vram, &b.vram, out, Some(options.max_vram_lines));
-    diff_bytes("Bus.wram", &a.wram, &b.wram, out, Some(options.max_wram_lines));
+fn diff_bus(a: &BusState, b: &BusState, out: &mut Vec<String>, options: DiffOptions) {
+    diff_bytes(
+        "Bus.vram",
+        &a.vram,
+        &b.vram,
+        out,
+        Some(options.max_vram_lines),
+    );
+    diff_bytes(
+        "Bus.wram",
+        &a.wram,
+        &b.wram,
+        out,
+        Some(options.max_wram_lines),
+    );
     diff_bytes("Bus.oam", &a.oam, &b.oam, out, Some(options.max_oam_lines));
     diff_bytes("Bus.hram", &a.hram, &b.hram, out, None);
     diff_bytes("Bus.io", &a.io, &b.io, out, None);
@@ -173,7 +160,9 @@ fn diff_bus(
             if a.$field != b.$field {
                 out.push(format!(
                     "Bus.{}: {:?} != {:?}",
-                    stringify!($field), a.$field, b.$field
+                    stringify!($field),
+                    a.$field,
+                    b.$field
                 ));
             }
         };
@@ -214,7 +203,9 @@ fn diff_mbc1(a: &Mbc1State, b: &Mbc1State, out: &mut Vec<String>) {
             if a.$field != b.$field {
                 out.push(format!(
                     "MBC1.{}: {:?} != {:?}",
-                    stringify!($field), a.$field, b.$field
+                    stringify!($field),
+                    a.$field,
+                    b.$field
                 ));
             }
         };
@@ -233,7 +224,9 @@ fn diff_apu(a: &ApuState, b: &ApuState, out: &mut Vec<String>) {
             if a.$field != b.$field {
                 out.push(format!(
                     "APU.{}: {:?} != {:?}",
-                    stringify!($field), a.$field, b.$field
+                    stringify!($field),
+                    a.$field,
+                    b.$field
                 ));
             }
         };
@@ -259,7 +252,10 @@ fn diff_square(name: &str, a: &SquareChannelState, b: &SquareChannelState, out: 
             if a.$field != b.$field {
                 out.push(format!(
                     "{}.{}: {:?} != {:?}",
-                    name, stringify!($field), a.$field, b.$field
+                    name,
+                    stringify!($field),
+                    a.$field,
+                    b.$field
                 ));
             }
         };
@@ -289,7 +285,10 @@ fn diff_wave(name: &str, a: &WaveChannelState, b: &WaveChannelState, out: &mut V
             if a.$field != b.$field {
                 out.push(format!(
                     "{}.{}: {:?} != {:?}",
-                    name, stringify!($field), a.$field, b.$field
+                    name,
+                    stringify!($field),
+                    a.$field,
+                    b.$field
                 ));
             }
         };
@@ -314,7 +313,10 @@ fn diff_noise(name: &str, a: &NoiseChannelState, b: &NoiseChannelState, out: &mu
             if a.$field != b.$field {
                 out.push(format!(
                     "{}.{}: {:?} != {:?}",
-                    name, stringify!($field), a.$field, b.$field
+                    name,
+                    stringify!($field),
+                    a.$field,
+                    b.$field
                 ));
             }
         };
@@ -333,13 +335,7 @@ fn diff_noise(name: &str, a: &NoiseChannelState, b: &NoiseChannelState, out: &mu
     check!(lfsr);
 }
 
-fn diff_bytes(
-    name: &str,
-    a: &[u8],
-    b: &[u8],
-    out: &mut Vec<String>,
-    max_lines: Option<usize>,
-) {
+fn diff_bytes(name: &str, a: &[u8], b: &[u8], out: &mut Vec<String>, max_lines: Option<usize>) {
     if a == b {
         return;
     }
@@ -354,10 +350,7 @@ fn diff_bytes(
 
         if av != bv {
             if max_lines.map_or(true, |limit| changes < limit) {
-                out.push(format!(
-                    "{}[0x{:04X}]: {:?} != {:?}",
-                    name, i, av, bv
-                ));
+                out.push(format!("{}[0x{:04X}]: {:?} != {:?}", name, i, av, bv));
                 changes += 1;
             } else {
                 skipped += 1;
@@ -390,11 +383,9 @@ mod tests {
             .count();
 
         assert_eq!(
-            detailed_changes,
-            32,
+            detailed_changes, 32,
             "{} powinien zwrócić dokładnie 32 szczegółowe zmiany: {:?}",
-            name,
-            differences
+            name, differences
         );
 
         assert_eq!(
@@ -406,9 +397,9 @@ mod tests {
         );
 
         assert!(
-            differences.iter().any(|line| {
-                line == &format!("{}: ... pominięto 8 kolejnych zmian", name)
-            }),
+            differences
+                .iter()
+                .any(|line| { line == &format!("{}: ... pominięto 8 kolejnych zmian", name) }),
             "{} powinien zgłosić 8 pominiętych zmian: {:?}",
             name,
             differences

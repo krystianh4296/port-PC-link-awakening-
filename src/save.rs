@@ -39,11 +39,7 @@ pub fn load_sram(bus: &mut Bus) {
 
             ram[..len].copy_from_slice(&data[..len]);
 
-            println!(
-                "SRAM wczytano ({} bajtów): {}",
-                len,
-                path.display()
-            );
+            println!("SRAM wczytano ({} bajtów): {}", len, path.display());
         }
         Err(e) => {
             eprintln!("SRAM LOAD ERROR: {}", e);

@@ -19,7 +19,6 @@ pub struct Cpu {
     pub halted: bool,
 
     pub opcode_counts: [u64; 256],
-    
 }
 
 impl Cpu {
@@ -142,54 +141,54 @@ impl Cpu {
     }
 
     fn push(&mut self, bus: &mut crate::bus::Bus, value: u16) {
-    let _old_sp = self.sp;
+        let _old_sp = self.sp;
 
-    self.sp = self.sp.wrapping_sub(1);
-    let high_addr = self.sp;
-    bus.write(high_addr, (value >> 8) as u8);
+        self.sp = self.sp.wrapping_sub(1);
+        let high_addr = self.sp;
+        bus.write(high_addr, (value >> 8) as u8);
 
-    self.sp = self.sp.wrapping_sub(1);
-    let low_addr = self.sp;
-    bus.write(low_addr, value as u8);
+        self.sp = self.sp.wrapping_sub(1);
+        let low_addr = self.sp;
+        bus.write(low_addr, value as u8);
 
-    // println!(
-    //     "PUSH value={:04X} SP {:04X}->{:04X} [{}]={:02X} [{}]={:02X}",
-    //     value,
-    //     old_sp,
-    //     self.sp,
-    //     low_addr,
-    //     bus.read(low_addr),
-    //     high_addr,
-    //     bus.read(high_addr),
-    // );
-}
+        // println!(
+        //     "PUSH value={:04X} SP {:04X}->{:04X} [{}]={:02X} [{}]={:02X}",
+        //     value,
+        //     old_sp,
+        //     self.sp,
+        //     low_addr,
+        //     bus.read(low_addr),
+        //     high_addr,
+        //     bus.read(high_addr),
+        // );
+    }
 
-fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
-    let _old_sp = self.sp;
+    fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
+        let _old_sp = self.sp;
 
-    let _low_addr = self.sp;
-    let low = bus.read(self.sp);
-    self.sp = self.sp.wrapping_add(1);
+        let _low_addr = self.sp;
+        let low = bus.read(self.sp);
+        self.sp = self.sp.wrapping_add(1);
 
-    let _high_addr = self.sp;
-    let high = bus.read(self.sp);
-    self.sp = self.sp.wrapping_add(1);
+        let _high_addr = self.sp;
+        let high = bus.read(self.sp);
+        self.sp = self.sp.wrapping_add(1);
 
-    let value = u16::from_le_bytes([low, high]);
+        let value = u16::from_le_bytes([low, high]);
 
-    // println!(
-    //     "POP value={:04X} SP {:04X}->{:04X} [{}]={:02X} [{}]={:02X}",
-    //     value,
-    //     old_sp,
-    //     self.sp,
-    //     low_addr,
-    //     low,
-    //     high_addr,
-    //     high,
-    // );
+        // println!(
+        //     "POP value={:04X} SP {:04X}->{:04X} [{}]={:02X} [{}]={:02X}",
+        //     value,
+        //     old_sp,
+        //     self.sp,
+        //     low_addr,
+        //     low,
+        //     high_addr,
+        //     high,
+        // );
 
-    value
-}
+        value
+    }
 
     fn read_r8(&self, bus: &mut crate::bus::Bus, index: u8) -> u8 {
         match index {
@@ -205,12 +204,7 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
         }
     }
 
-    fn write_r8(
-        &mut self,
-        bus: &mut crate::bus::Bus,
-        index: u8,
-        value: u8,
-    ) {
+    fn write_r8(&mut self, bus: &mut crate::bus::Bus, index: u8, value: u8) {
         match index {
             0 => self.b = value,
             1 => self.c = value,
@@ -275,12 +269,7 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
                 let a = self.a;
                 let result = a.wrapping_sub(value);
 
-                self.set_flags(
-                    result == 0,
-                    true,
-                    (a & 0x0F) < (value & 0x0F),
-                    a < value,
-                );
+                self.set_flags(result == 0, true, (a & 0x0F) < (value & 0x0F), a < value);
 
                 self.a = result;
             }
@@ -306,61 +295,36 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
             4 => {
                 self.a &= value;
 
-                self.set_flags(
-                    self.a == 0,
-                    false,
-                    true,
-                    false,
-                );
+                self.set_flags(self.a == 0, false, true, false);
             }
 
             // XOR
             5 => {
                 self.a ^= value;
 
-                self.set_flags(
-                    self.a == 0,
-                    false,
-                    false,
-                    false,
-                );
+                self.set_flags(self.a == 0, false, false, false);
             }
 
-           // OR
-6 => {
-   self.a |= value;
+            // OR
+            6 => {
+                self.a |= value;
 
-    self.set_flags(
-        self.a == 0,
-        false,
-        false,
-        false,
-    );
-
-}
+                self.set_flags(self.a == 0, false, false, false);
+            }
 
             // CP
             7 => {
                 let a = self.a;
                 let result = a.wrapping_sub(value);
 
-                self.set_flags(
-                    result == 0,
-                    true,
-                    (a & 0x0F) < (value & 0x0F),
-                    a < value,
-                );
+                self.set_flags(result == 0, true, (a & 0x0F) < (value & 0x0F), a < value);
             }
 
             _ => unreachable!(),
         }
     }
 
-    fn execute_cb(
-        &mut self,
-        bus: &mut crate::bus::Bus,
-        opcode: u8,
-    ) -> u32 {
+    fn execute_cb(&mut self, bus: &mut crate::bus::Bus, opcode: u8) -> u32 {
         let x = opcode >> 6;
         let y = (opcode >> 3) & 0x07;
         let z = opcode & 0x07;
@@ -386,25 +350,17 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
                     // RL
                     2 => {
                         let carry = old & 0x80 != 0;
-                        let old_carry =
-                            if self.flag_c() { 1 } else { 0 };
+                        let old_carry = if self.flag_c() { 1 } else { 0 };
 
-                        (
-                            (old << 1) | old_carry,
-                            carry,
-                        )
+                        ((old << 1) | old_carry, carry)
                     }
 
                     // RR
                     3 => {
                         let carry = old & 0x01 != 0;
-                        let old_carry =
-                            if self.flag_c() { 0x80 } else { 0 };
+                        let old_carry = if self.flag_c() { 0x80 } else { 0 };
 
-                        (
-                            (old >> 1) | old_carry,
-                            carry,
-                        )
+                        ((old >> 1) | old_carry, carry)
                     }
 
                     // SLA
@@ -420,9 +376,7 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
                     }
 
                     // SWAP
-                    6 => {
-                        (old.rotate_left(4), false)
-                    }
+                    6 => (old.rotate_left(4), false),
 
                     // SRL
                     7 => {
@@ -435,18 +389,9 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
 
                 self.write_r8(bus, z, result);
 
-                self.set_flags(
-                    result == 0,
-                    false,
-                    false,
-                    carry,
-                );
+                self.set_flags(result == 0, false, false, carry);
 
-                if z == 6 {
-                    16
-                } else {
-                    8
-                }
+                if z == 6 { 16 } else { 8 }
             }
 
             // BIT
@@ -455,18 +400,9 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
                 let bit_set = value & (1 << y) != 0;
                 let carry = self.flag_c();
 
-                self.set_flags(
-                    !bit_set,
-                    false,
-                    true,
-                    carry,
-                );
+                self.set_flags(!bit_set, false, true, carry);
 
-                if z == 6 {
-                    12
-                } else {
-                    8
-                }
+                if z == 6 { 12 } else { 8 }
             }
 
             // RES
@@ -476,11 +412,7 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
 
                 self.write_r8(bus, z, result);
 
-                if z == 6 {
-                    16
-                } else {
-                    8
-                }
+                if z == 6 { 16 } else { 8 }
             }
 
             // SET
@@ -490,220 +422,198 @@ fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
 
                 self.write_r8(bus, z, result);
 
-                if z == 6 {
-                    16
-                } else {
-                    8
-                }
+                if z == 6 { 16 } else { 8 }
             }
 
             _ => unreachable!(),
         }
     }
 
-fn execute_interrupt(
-    &mut self,
-    bus: &mut crate::bus::Bus,
-    pending: u8,
-) -> u32 {
-    let interrupt_bit;
-    let vector;
+    fn execute_interrupt(&mut self, bus: &mut crate::bus::Bus, pending: u8) -> u32 {
+        let interrupt_bit;
+        let vector;
 
-    if pending & 0x01 != 0 {
-        interrupt_bit = 0x01;
-        vector = 0x0040;
-    } else if pending & 0x02 != 0 {
-        interrupt_bit = 0x02;
-        vector = 0x0048;
-    } else if pending & 0x04 != 0 {
-        interrupt_bit = 0x04;
-        vector = 0x0050;
-    } else if pending & 0x08 != 0 {
-        interrupt_bit = 0x08;
-        vector = 0x0058;
-    } else {
-        interrupt_bit = 0x10;
-        vector = 0x0060;
+        if pending & 0x01 != 0 {
+            interrupt_bit = 0x01;
+            vector = 0x0040;
+        } else if pending & 0x02 != 0 {
+            interrupt_bit = 0x02;
+            vector = 0x0048;
+        } else if pending & 0x04 != 0 {
+            interrupt_bit = 0x04;
+            vector = 0x0050;
+        } else if pending & 0x08 != 0 {
+            interrupt_bit = 0x08;
+            vector = 0x0058;
+        } else {
+            interrupt_bit = 0x10;
+            vector = 0x0060;
+        }
+
+        let if_reg = bus.read(0xFF0F);
+        let _ie = bus.read(0xFFFF);
+        self.ime = false;
+        self.halted = false;
+
+        let new_if = if_reg & !interrupt_bit;
+        bus.write(0xFF0F, new_if);
+
+        self.push(bus, self.pc);
+        self.pc = vector;
+        20
     }
 
-    let if_reg = bus.read(0xFF0F);
-    let _ie = bus.read(0xFFFF);
-    self.ime = false;
-    self.halted = false;
+    pub fn step(&mut self, bus: &mut crate::bus::Bus) -> u32 {
+        let enable_ime = self.ime_pending;
+        self.ime_pending = false;
 
-    let new_if = if_reg & !interrupt_bit;
-    bus.write(0xFF0F, new_if);
+        let if_reg = bus.read(0xFF0F);
+        let ie = bus.read(0xFFFF);
+        let pending = if_reg & ie & 0x1F;
 
-    self.push(bus, self.pc);
-    self.pc = vector;
-    20
-}
+        if self.halted {
+            if pending != 0 {
+                self.halted = false;
 
-pub fn step(
-    &mut self,
-    bus: &mut crate::bus::Bus,
-) -> u32 {
-    let enable_ime = self.ime_pending;
-    self.ime_pending = false;
-
-    let if_reg = bus.read(0xFF0F);
-    let ie = bus.read(0xFFFF);
-    let pending = if_reg & ie & 0x1F;
-
-    if self.halted {
-        if pending != 0 {
-            self.halted = false;
-
-            if self.ime {
-                return self.execute_interrupt(bus, pending);
+                if self.ime {
+                    return self.execute_interrupt(bus, pending);
+                }
             }
+
+            if enable_ime {
+                self.ime = true;
+            }
+            return 4;
+        }
+
+        if self.ime && pending != 0 {
+            return self.execute_interrupt(bus, pending);
+        }
+
+        let cycles = self.execute(bus);
+        if self.pc == 0x0100 {
+            println!("CPU WRÓCIŁ DO 0100");
         }
 
         if enable_ime {
             self.ime = true;
         }
-        return 4;
+
+        cycles
     }
 
-    if self.ime && pending != 0 {
-        return self.execute_interrupt(bus, pending);
-    }
+    fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
+        let opcode = bus.read(self.pc);
+        self.pc = self.pc.wrapping_add(1);
 
-    let cycles = self.execute(bus);
-    if self.pc == 0x0100 {
-        println!("CPU WRÓCIŁ DO 0100");
-    }
-
-    if enable_ime {
-        self.ime = true;
-    }
-
-    cycles
-}
-
-fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
-    let opcode = bus.read(self.pc);
-    self.pc = self.pc.wrapping_add(1);
-
-    self.opcode_counts[opcode as usize] += 1;
+        self.opcode_counts[opcode as usize] += 1;
 
         if opcode == 0xCB {
             let cb_opcode = self.read_imm8(bus);
             return self.execute_cb(bus, cb_opcode);
         }
-    // -------------------------------------------------
-    // LD r8,r8
-    // -------------------------------------------------
+        // -------------------------------------------------
+        // LD r8,r8
+        // -------------------------------------------------
 
-    if (0x40..=0x7F).contains(&opcode) {
-        // HALT
-        if opcode == 0x76 {
-            self.halted = true;
+        if (0x40..=0x7F).contains(&opcode) {
+            // HALT
+            if opcode == 0x76 {
+                self.halted = true;
+                return 4;
+            }
+
+            let dst = (opcode >> 3) & 7;
+            let src = opcode & 7;
+            let value = self.read_r8(bus, src);
+
+            self.write_r8(bus, dst, value);
+
+            if dst == 6 || src == 6 {
+                return 8;
+            }
+
             return 4;
         }
 
-        let dst = (opcode >> 3) & 7;
-        let src = opcode & 7;
-        let value = self.read_r8(bus, src);
+        // -------------------------------------------------
+        // ALU A,r
+        // -------------------------------------------------
 
-        self.write_r8(bus, dst, value);
+        if (0x80..=0xBF).contains(&opcode) {
+            let op = (opcode >> 3) & 7;
+            let src = opcode & 7;
+            let value = self.read_r8(bus, src);
 
-        if dst == 6 || src == 6 {
+            self.alu_a(op, value);
+
+            if src == 6 {
+                return 8;
+            }
+
+            return 4;
+        }
+
+        // -------------------------------------------------
+        // LD r,d8
+        // -------------------------------------------------
+
+        if opcode & 0xC7 == 0x06 {
+            let dst = (opcode >> 3) & 7;
+            let value = self.read_imm8(bus);
+
+            self.write_r8(bus, dst, value);
+
+            if dst == 6 {
+                return 12;
+            }
+
             return 8;
         }
 
-        return 4;
-    }
+        // -------------------------------------------------
+        // INC r8
+        // -------------------------------------------------
 
-    // -------------------------------------------------
-    // ALU A,r
-    // -------------------------------------------------
+        if opcode & 0xC7 == 0x04 {
+            let index = (opcode >> 3) & 7;
+            let old = self.read_r8(bus, index);
+            let result = old.wrapping_add(1);
 
-    if (0x80..=0xBF).contains(&opcode) {
-        let op = (opcode >> 3) & 7;
-        let src = opcode & 7;
-        let value = self.read_r8(bus, src);
+            let carry = self.flag_c();
 
-        self.alu_a(op, value);
+            self.write_r8(bus, index, result);
 
-        if src == 6 {
-            return 8;
-    }
+            self.set_flags(result == 0, false, (old & 0x0F) == 0x0F, carry);
 
-    return 4;
-}
+            if index == 6 {
+                return 12;
+            }
 
-    // -------------------------------------------------
-    // LD r,d8
-    // -------------------------------------------------
-
-    if opcode & 0xC7 == 0x06 {
-        let dst = (opcode >> 3) & 7;
-        let value = self.read_imm8(bus);
-
-        self.write_r8(bus, dst, value);
-
-        if dst == 6 {
-            return 12;
+            return 4;
         }
 
-        return 8;
-    }
+        // -------------------------------------------------
+        // DEC r8
+        // -------------------------------------------------
 
-    // -------------------------------------------------
-    // INC r8
-    // -------------------------------------------------
+        if opcode & 0xC7 == 0x05 {
+            let index = (opcode >> 3) & 7;
+            let old = self.read_r8(bus, index);
+            let result = old.wrapping_sub(1);
 
-    if opcode & 0xC7 == 0x04 {
-        let index = (opcode >> 3) & 7;
-        let old = self.read_r8(bus, index);
-        let result = old.wrapping_add(1);
+            let carry = self.flag_c();
 
-        let carry = self.flag_c();
+            self.write_r8(bus, index, result);
 
-        self.write_r8(bus, index, result);
+            self.set_flags(result == 0, true, (old & 0x0F) == 0, carry);
 
-        self.set_flags(
-            result == 0,
-            false,
-            (old & 0x0F) == 0x0F,
-            carry,
-        );
+            if index == 6 {
+                return 12;
+            }
 
-        if index == 6 {
-            return 12;
+            return 4;
         }
-
-        return 4;
-    }
-
-    // -------------------------------------------------
-    // DEC r8
-    // -------------------------------------------------
-
-    if opcode & 0xC7 == 0x05 {
-
-    let index = (opcode >> 3) & 7;
-    let old = self.read_r8(bus, index);
-    let result = old.wrapping_sub(1);
-
-    let carry = self.flag_c();
-
-    self.write_r8(bus, index, result);
-
-    self.set_flags(
-        result == 0,
-        true,
-        (old & 0x0F) == 0,
-        carry,
-    );
-
-    if index == 6 {
-        return 12;
-    }
-
-    return 4;
-}
 
         match opcode {
             // NOP
@@ -756,12 +666,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 let carry = self.a & 0x80 != 0;
                 self.a = self.a.rotate_left(1);
 
-                self.set_flags(
-                    false,
-                    false,
-                    false,
-                    carry,
-                );
+                self.set_flags(false, false, false, carry);
 
                 4
             }
@@ -771,12 +676,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 let carry = self.a & 0x01 != 0;
                 self.a = self.a.rotate_right(1);
 
-                self.set_flags(
-                    false,
-                    false,
-                    false,
-                    carry,
-                );
+                self.set_flags(false, false, false, carry);
 
                 4
             }
@@ -817,17 +717,11 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             // RLA
             0x17 => {
                 let carry = self.a & 0x80 != 0;
-                let old_carry =
-                    if self.flag_c() { 1 } else { 0 };
+                let old_carry = if self.flag_c() { 1 } else { 0 };
 
                 self.a = (self.a << 1) | old_carry;
 
-                self.set_flags(
-                    false,
-                    false,
-                    false,
-                    carry,
-                );
+                self.set_flags(false, false, false, carry);
 
                 4
             }
@@ -835,26 +729,20 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             // RRA
             0x1F => {
                 let carry = self.a & 0x01 != 0;
-                let old_carry =
-                    if self.flag_c() { 0x80 } else { 0 };
+                let old_carry = if self.flag_c() { 0x80 } else { 0 };
 
                 self.a = (self.a >> 1) | old_carry;
 
-                self.set_flags(
-                    false,
-                    false,
-                    false,
-                    carry,
-                );
+                self.set_flags(false, false, false, carry);
 
                 4
             }
 
             // LD HL,d16
             0x21 => {
-                 let value = self.read_imm16(bus);
-                 self.set_hl(value);
-                 12
+                let value = self.read_imm16(bus);
+                self.set_hl(value);
+                12
             }
 
             // LD (HL+),A
@@ -927,8 +815,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 let value = self.read_rr(index);
                 let result = hl_before.wrapping_add(value);
                 let carry16 = (hl_before as u32 + value as u32) > 0xFFFF;
-                let half_carry =
-                    ((hl_before & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF;
+                let half_carry = ((hl_before & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF;
                 let zero = self.flag_z();
 
                 self.set_flags(zero, false, half_carry, carry16);
@@ -941,10 +828,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 let address = self.read_imm16(bus);
 
                 bus.write(address, self.sp as u8);
-                bus.write(
-                    address.wrapping_add(1),
-                    (self.sp >> 8) as u8,
-                );
+                bus.write(address.wrapping_add(1), (self.sp >> 8) as u8);
 
                 20
             }
@@ -957,20 +841,13 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 let sp = self.sp;
                 let result = sp.wrapping_add(signed as i16 as u16);
 
-                let half_carry =
-                    ((sp & 0x000F) + (offset as u16 & 0x000F)) > 0x000F;
+                let half_carry = ((sp & 0x000F) + (offset as u16 & 0x000F)) > 0x000F;
 
-                let carry =
-                    ((sp & 0x00FF) + (offset as u16 & 0x00FF)) > 0x00FF;
+                let carry = ((sp & 0x00FF) + (offset as u16 & 0x00FF)) > 0x00FF;
 
                 self.sp = result;
 
-                self.set_flags(
-                    false,
-                    false,
-                    half_carry,
-                    carry,
-                );
+                self.set_flags(false, false, half_carry, carry);
 
                 16
             }
@@ -983,20 +860,13 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 let sp = self.sp;
                 let result = sp.wrapping_add(signed as i16 as u16);
 
-                let half_carry =
-                    ((sp & 0x000F) + (offset as u16 & 0x000F)) > 0x000F;
+                let half_carry = ((sp & 0x000F) + (offset as u16 & 0x000F)) > 0x000F;
 
-                let carry =
-                    ((sp & 0x00FF) + (offset as u16 & 0x00FF)) > 0x00FF;
+                let carry = ((sp & 0x00FF) + (offset as u16 & 0x00FF)) > 0x00FF;
 
                 self.set_hl(result);
 
-                self.set_flags(
-                    false,
-                    false,
-                    half_carry,
-                    carry,
-                );
+                self.set_flags(false, false, half_carry, carry);
 
                 12
             }
@@ -1018,12 +888,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             0x37 => {
                 let z = self.flag_z();
 
-                self.set_flags(
-                    z,
-                    false,
-                    false,
-                    true,
-                );
+                self.set_flags(z, false, false, true);
 
                 4
             }
@@ -1033,12 +898,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 let z = self.flag_z();
                 let c = !self.flag_c();
 
-                self.set_flags(
-                    z,
-                    false,
-                    false,
-                    c,
-                );
+                self.set_flags(z, false, false, c);
 
                 4
             }
@@ -1071,12 +931,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
 
                 self.a = a;
 
-                self.set_flags(
-                    a == 0,
-                    old_n,
-                    false,
-                    carry,
-                );
+                self.set_flags(a == 0, old_n, false, carry);
 
                 4
             }
@@ -1084,19 +939,18 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             // JR r8
             0x18 => {
                 let offset = self.read_imm8(bus) as i8;
-                self.pc =
-                    (self.pc as i32 + offset as i32) as u16;
+                self.pc = (self.pc as i32 + offset as i32) as u16;
 
                 12
             }
 
             // JR NZ/Z/NC/C
             0x20 | 0x28 | 0x30 | 0x38 => {
-            let cc = (opcode >> 3) & 0x03;
-            let raw_offset = self.read_imm8(bus);
-            let offset = raw_offset as i8;
-            let condition = self.condition(cc);
-            let target = (self.pc as i32 + offset as i32) as u16;
+                let cc = (opcode >> 3) & 0x03;
+                let raw_offset = self.read_imm8(bus);
+                let offset = raw_offset as i8;
+                let condition = self.condition(cc);
+                let target = (self.pc as i32 + offset as i32) as u16;
 
                 if condition {
                     self.pc = target;
@@ -1136,7 +990,6 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             0xC4 | 0xCC | 0xD4 | 0xDC => {
                 let cc = (opcode >> 3) & 0x03;
                 let address = self.read_imm16(bus);
-                
 
                 if self.condition(cc) {
                     self.push(bus, self.pc);
@@ -1147,20 +1000,20 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                 }
             }
 
-// CALL a16
-0xCD => {
-    let lo = bus.read(self.pc);
-    let hi = bus.read(self.pc.wrapping_add(1));
+            // CALL a16
+            0xCD => {
+                let lo = bus.read(self.pc);
+                let hi = bus.read(self.pc.wrapping_add(1));
 
-    let target = u16::from_le_bytes([lo, hi]);
-    let return_addr = self.pc.wrapping_add(2);
+                let target = u16::from_le_bytes([lo, hi]);
+                let return_addr = self.pc.wrapping_add(2);
 
-    self.push(bus, return_addr);
+                self.push(bus, return_addr);
 
-    self.pc = target; 
+                self.pc = target;
 
-    24
-}
+                24
+            }
             // RET NZ/Z/NC/C
             0xC0 | 0xC8 | 0xD0 | 0xD8 => {
                 let cc = (opcode >> 3) & 0x03;
@@ -1177,14 +1030,11 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             0xC9 => {
                 self.pc = self.pop(bus);
                 16
-                
             }
 
             // RETI
             0xD9 => {
                 let return_address = self.pop(bus);
-
-
 
                 self.pc = return_address;
                 self.ime = true;
@@ -1261,8 +1111,7 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             }
 
             // ALU d8
-            0xC6 | 0xCE | 0xD6 | 0xDE
-            | 0xE6 | 0xEE | 0xF6 | 0xFE => {
+            0xC6 | 0xCE | 0xD6 | 0xDE | 0xE6 | 0xEE | 0xF6 | 0xFE => {
                 let op = (opcode >> 3) & 7;
                 let value = self.read_imm8(bus);
 
@@ -1273,7 +1122,6 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
 
             // HALT
             0x76 => {
-                
                 self.halted = true;
                 4
             }
@@ -1340,13 +1188,13 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
 
             // LD A,(a16)
             0xFA => {
-    let address = self.read_imm16(bus);
-    let value = bus.read(address);
+                let address = self.read_imm16(bus);
+                let value = bus.read(address);
 
-    self.a = value;
+                self.a = value;
 
-    16
-}
+                16
+            }
 
             // DI
             0xF3 => {
@@ -1365,29 +1213,13 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             0xAF => {
                 self.a ^= self.a;
 
-                self.set_flags(
-                    true,
-                    false,
-                    false,
-                    false,
-                );
+                self.set_flags(true, false, false, false);
 
                 4
             }
 
-
             // Invalid opcodes
-            0xD3
-            | 0xDB
-            | 0xDD
-            | 0xE3
-            | 0xE4
-            | 0xEB
-            | 0xEC
-            | 0xED
-            | 0xF4
-            | 0xFC
-            | 0xFD => {
+            0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {
                 panic!(
                     "Nieprawidłowa instrukcja {:02X} pod adresem ${:04X}",
                     opcode,
@@ -1402,9 +1234,6 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
                     self.pc.wrapping_sub(1)
                 );
             }
-    
         }
-        
     }
-    
 }

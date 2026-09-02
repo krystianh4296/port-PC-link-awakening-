@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 pub struct Rom {
     data: Vec<u8>,
     path: PathBuf,
@@ -9,8 +9,7 @@ impl Rom {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let path = path.as_ref().to_path_buf();
 
-        let data = fs::read(&path)
-            .map_err(|e| format!("Nie udało się wczytać ROM-u: {}", e))?;
+        let data = fs::read(&path).map_err(|e| format!("Nie udało się wczytać ROM-u: {}", e))?;
 
         if data.len() < 0x150 {
             return Err("ROM jest za mały.".to_string());
@@ -26,10 +25,7 @@ impl Rom {
         println!("ROM size code: {:02X}", data[0x148]);
         println!("RAM size code: {:02X}", data[0x149]);
 
-        Ok(Self {
-            data,
-            path,
-        })
+        Ok(Self { data, path })
     }
 
     pub fn save_path(&self) -> PathBuf {
@@ -69,18 +65,17 @@ impl Rom {
     }
 }
 
-
 // ============================================================
 // MBC1
 // ============================================================
 
 fn ram_size_bytes(code: u8) -> usize {
     match code {
-        0x01 => 0x0800,    // 2 KB
-        0x02 => 0x2000,    // 8 KB
-        0x03 => 0x8000,    // 32 KB
-        0x04 => 0x20000,   // 128 KB
-        0x05 => 0x10000,   // 64 KB
+        0x01 => 0x0800,  // 2 KB
+        0x02 => 0x2000,  // 8 KB
+        0x03 => 0x8000,  // 32 KB
+        0x04 => 0x20000, // 128 KB
+        0x05 => 0x10000, // 64 KB
         _ => 0,
     }
 }
@@ -166,23 +161,15 @@ impl Mbc1 {
     pub fn read(&self, rom: &Rom, address: u16) -> u8 {
         match address {
             0x0000..=0x3FFF => {
-                let bank =
-                    self.rom_bank_0000() % rom.rom_bank_count();
+                let bank = self.rom_bank_0000() % rom.rom_bank_count();
 
-                rom.read(
-                    bank * 0x4000
-                        + address as usize
-                )
+                rom.read(bank * 0x4000 + address as usize)
             }
 
             0x4000..=0x7FFF => {
-                let bank =
-                    self.rom_bank_4000() % rom.rom_bank_count();
+                let bank = self.rom_bank_4000() % rom.rom_bank_count();
 
-                rom.read(
-                    bank * 0x4000
-                        + (address as usize - 0x4000)
-                )
+                rom.read(bank * 0x4000 + (address as usize - 0x4000))
             }
 
             _ => 0xFF,
@@ -198,15 +185,11 @@ impl Mbc1 {
             return;
         }
 
-        let ram_banks =
-            (self.ram.len() / 0x2000).max(1);
+        let ram_banks = (self.ram.len() / 0x2000).max(1);
 
-        let bank =
-            self.ram_bank() % ram_banks;
+        let bank = self.ram_bank() % ram_banks;
 
-        let offset =
-            bank * 0x2000
-                + (address as usize - 0xA000);
+        let offset = bank * 0x2000 + (address as usize - 0xA000);
 
         if let Some(slot) = self.ram.get_mut(offset) {
             *slot = value;
@@ -218,20 +201,13 @@ impl Mbc1 {
             return 0xFF;
         }
 
-        let ram_banks =
-            (self.ram.len() / 0x2000).max(1);
+        let ram_banks = (self.ram.len() / 0x2000).max(1);
 
-        let bank =
-            self.ram_bank() % ram_banks;
+        let bank = self.ram_bank() % ram_banks;
 
-        let offset =
-            bank * 0x2000
-                + (address as usize - 0xA000);
+        let offset = bank * 0x2000 + (address as usize - 0xA000);
 
-        self.ram
-            .get(offset)
-            .copied()
-            .unwrap_or(0xFF)
+        self.ram.get(offset).copied().unwrap_or(0xFF)
     }
     pub fn ram(&self) -> &[u8] {
         &self.ram

@@ -1,22 +1,22 @@
-mod bus;
-mod cpu;
-mod rom;
 mod apu;
 mod audio;
-mod save;
-mod savestate;
+mod bus;
+mod cpu;
 mod debug;
 mod debug_snapshot;
+mod rom;
+mod save;
+mod savestate;
 
-use std::env;
-use std::time::{Duration, Instant};
+use audio::Audio;
 use bus::Bus;
 use cpu::Cpu;
 use debug::{ConsoleCommand, DebugConsole, Debugger};
 use debug_snapshot::{DebugSnapshot, DiffOptions};
 use minifb::{Key, Window, WindowOptions};
-use audio::Audio;
-use savestate::{SaveState, save_to_file, load_from_file};
+use savestate::{SaveState, load_from_file, save_to_file};
+use std::env;
+use std::time::{Duration, Instant};
 
 const WIDTH: usize = 160;
 const HEIGHT: usize = 144;
@@ -48,7 +48,9 @@ fn main() {
     println!("RAM size code: {:02X}", bus.rom.ram_size_code());
     println!("CPU uruchomiony. PC={:04X} SP={:04X}", cpu.pc, cpu.sp);
     println!("Sterowanie: WASD = D-pad, J = A, K = B, U = Select, I = Start");
-    println!("DEBUG: F1=włącz/wyłącz, F2=1 instrukcja, F3=continue, F4=break, F10=BP PC, F11=usuń BP, F12=status");
+    println!(
+        "DEBUG: F1=włącz/wyłącz, F2=1 instrukcja, F3=continue, F4=break, F10=BP PC, F11=usuń BP, F12=status"
+    );
     println!("DEBUG CONSOLE: BP 01A6 | WATCH FF44 | TRACE 0100:0200 | DIS 03CE 3 | HELP");
 
     let debug_console = DebugConsole::new();
@@ -100,11 +102,7 @@ fn main() {
         while let Some(command) = debug_console.try_read() {
             let command = ConsoleCommand::parse(&command);
 
-            debugger.execute_console_command(
-                command,
-                &cpu,
-                &mut bus,
-            );
+            debugger.execute_console_command(command, &cpu, &mut bus);
         }
 
         let mut buttons = 0xFFu8;
@@ -132,21 +130,27 @@ fn main() {
             }
             f1_key_lock = true;
         }
-        if !f1_down { f1_key_lock = false; }
+        if !f1_down {
+            f1_key_lock = false;
+        }
 
         if f2_down && !f2_key_lock {
             debugger.step();
             println!("DEBUG: STEP -> wykonana zostanie dokładnie 1 instrukcja CPU");
             f2_key_lock = true;
         }
-        if !f2_down { f2_key_lock = false; }
+        if !f2_down {
+            f2_key_lock = false;
+        }
 
         if f3_down && !f3_key_lock {
             debugger.continue_execution();
             println!("DEBUG: continue");
             f3_key_lock = true;
         }
-        if !f3_down { f3_key_lock = false; }
+        if !f3_down {
+            f3_key_lock = false;
+        }
 
         if f4_down && !f4_key_lock {
             debugger.break_now(format!("Manual break at PC={:04X}", cpu.pc));
@@ -154,21 +158,27 @@ fn main() {
             debugger.print_stop_disassembly(&mut bus, cpu.pc);
             f4_key_lock = true;
         }
-        if !f4_down { f4_key_lock = false; }
+        if !f4_down {
+            f4_key_lock = false;
+        }
 
         if f5_down && !f5_key_lock {
             bus.save_game();
             println!("Gra zapisana.");
             f5_key_lock = true;
         }
-        if !f5_down { f5_key_lock = false; }
+        if !f5_down {
+            f5_key_lock = false;
+        }
 
         if f6_down && !f6_key_lock {
             bus.load_game();
             println!("Gra wczytana.");
             f6_key_lock = true;
         }
-        if !f6_down { f6_key_lock = false; }
+        if !f6_down {
+            f6_key_lock = false;
+        }
 
         if f8_down && !f8_key_lock {
             let state = SaveState::capture(&cpu, &bus);
@@ -176,7 +186,9 @@ fn main() {
             println!("Savestate zapisany.");
             f8_key_lock = true;
         }
-        if !f8_down { f8_key_lock = false; }
+        if !f8_down {
+            f8_key_lock = false;
+        }
 
         if f9_down && !f9_key_lock {
             let state = load_from_file("save.state");
@@ -184,7 +196,9 @@ fn main() {
             println!("Savestate wczytany.");
             f9_key_lock = true;
         }
-        if !f9_down { f9_key_lock = false; }
+        if !f9_down {
+            f9_key_lock = false;
+        }
 
         if f10_down && !f10_key_lock {
             if debugger.has_breakpoint(cpu.pc) {
@@ -195,30 +209,52 @@ fn main() {
             }
             f10_key_lock = true;
         }
-        if !f10_down { f10_key_lock = false; }
+        if !f10_down {
+            f10_key_lock = false;
+        }
 
         if f11_down && !f11_key_lock {
             debugger.remove_breakpoint(cpu.pc);
             println!("DEBUG: breakpoint usunięty z {:04X}", cpu.pc);
             f11_key_lock = true;
         }
-        if !f11_down { f11_key_lock = false; }
+        if !f11_down {
+            f11_key_lock = false;
+        }
 
         if f12_down && !f12_key_lock {
             debugger.print_status(&cpu);
             debugger.print_stop_disassembly(&mut bus, cpu.pc);
             f12_key_lock = true;
         }
-        if !f12_down { f12_key_lock = false; }
+        if !f12_down {
+            f12_key_lock = false;
+        }
 
-        if window.is_key_down(Key::D) { buttons &= !(1 << 0); }
-        if window.is_key_down(Key::A) { buttons &= !(1 << 1); }
-        if window.is_key_down(Key::W) { buttons &= !(1 << 2); }
-        if window.is_key_down(Key::S) { buttons &= !(1 << 3); }
-        if window.is_key_down(Key::J) { buttons &= !(1 << 4); }
-        if window.is_key_down(Key::K) { buttons &= !(1 << 5); }
-        if window.is_key_down(Key::U) { buttons &= !(1 << 6); }
-        if window.is_key_down(Key::I) { buttons &= !(1 << 7); }
+        if window.is_key_down(Key::D) {
+            buttons &= !(1 << 0);
+        }
+        if window.is_key_down(Key::A) {
+            buttons &= !(1 << 1);
+        }
+        if window.is_key_down(Key::W) {
+            buttons &= !(1 << 2);
+        }
+        if window.is_key_down(Key::S) {
+            buttons &= !(1 << 3);
+        }
+        if window.is_key_down(Key::J) {
+            buttons &= !(1 << 4);
+        }
+        if window.is_key_down(Key::K) {
+            buttons &= !(1 << 5);
+        }
+        if window.is_key_down(Key::U) {
+            buttons &= !(1 << 6);
+        }
+        if window.is_key_down(Key::I) {
+            buttons &= !(1 << 7);
+        }
 
         bus.set_buttons(buttons);
 
@@ -228,11 +264,7 @@ fn main() {
             while let Some(command) = debug_console.try_read() {
                 let command = ConsoleCommand::parse(&command);
 
-                debugger.execute_console_command(
-                    command,
-                    &cpu,
-                    &mut bus,
-                );
+                debugger.execute_console_command(command, &cpu, &mut bus);
             }
 
             let execute_instruction = debugger.before_instruction(&cpu, &mut bus);
@@ -242,8 +274,46 @@ fn main() {
                 break;
             }
 
+            let old_pc = cpu.pc;
+            let opcode = bus.read(old_pc);
+            let old_sp = cpu.sp;
+
             let cycles = cpu.step(&mut bus);
             frame_ready = bus.step(cycles, &mut buffer);
+
+            match opcode {
+                // CALL nn
+                0xCD => {
+                    let target = u16::from(bus.read(old_pc.wrapping_add(1)))
+                        | (u16::from(bus.read(old_pc.wrapping_add(2))) << 8);
+
+                    if cpu.pc == target && cpu.sp == old_sp.wrapping_sub(2) {
+                        debugger.call(old_pc.wrapping_add(3));
+                    }
+                }
+
+                // CALL NZ,nn / Z,nn / NC,nn / C,nn
+                0xC4 | 0xCC | 0xD4 | 0xDC => {
+                    let target = u16::from(bus.read(old_pc.wrapping_add(1)))
+                        | (u16::from(bus.read(old_pc.wrapping_add(2))) << 8);
+
+                    if cpu.pc == target && cpu.sp == old_sp.wrapping_sub(2) {
+                        debugger.call(old_pc.wrapping_add(3));
+                    }
+                }
+
+                // RET / RETI
+                0xC9 | 0xD9 => {
+                    debugger.ret();
+                }
+
+                // RST
+                0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => {
+                    debugger.call(old_pc.wrapping_add(1));
+                }
+
+                _ => {}
+            }
 
             debugger.after_instruction_hook(&cpu, &mut bus);
 
@@ -277,7 +347,9 @@ fn main() {
 
         if steps % 50_000 == 0 && steps != 0 {
             bus.render_tile_debug(&mut tile_buffer);
-            tile_window.update_with_buffer(&tile_buffer, TILE_DEBUG_WIDTH, TILE_DEBUG_HEIGHT).unwrap();
+            tile_window
+                .update_with_buffer(&tile_buffer, TILE_DEBUG_WIDTH, TILE_DEBUG_HEIGHT)
+                .unwrap();
         }
     }
 }
@@ -313,8 +385,7 @@ mod savestate_tests {
 
     #[test]
     fn savestate_restore_is_identical() {
-        let rom =
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+        let rom = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
         let mut bus = Bus::new(rom);
         bus.load_game();
@@ -352,8 +423,7 @@ mod debug_snapshot_tests {
 
     #[test]
     fn debug_snapshot_capture_works() {
-        let rom =
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+        let rom = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
         let mut bus = Bus::new(rom);
         bus.load_game();
@@ -378,8 +448,7 @@ mod debug_snapshot_tests {
 
     #[test]
     fn debug_snapshot_diff_detects_cpu_pc_change() {
-        let rom =
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+        let rom = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
         let mut bus = Bus::new(rom);
         bus.load_game();
@@ -425,8 +494,7 @@ mod debug_snapshot_tests {
     where
         F: FnMut(&mut Cpu),
     {
-        let rom =
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+        let rom = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
         let mut bus = Bus::new(rom);
         bus.load_game();
@@ -471,75 +539,35 @@ mod debug_snapshot_tests {
 
     #[test]
     fn debug_snapshot_diff_detects_every_cpu_field() {
-        assert_cpu_field_diff(
-            |cpu| cpu.a = cpu.a.wrapping_add(1),
-            "CPU.a:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.a = cpu.a.wrapping_add(1), "CPU.a:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.f ^= 0x01,
-            "CPU.f:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.f ^= 0x01, "CPU.f:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.b = cpu.b.wrapping_add(1),
-            "CPU.b:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.b = cpu.b.wrapping_add(1), "CPU.b:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.c = cpu.c.wrapping_add(1),
-            "CPU.c:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.c = cpu.c.wrapping_add(1), "CPU.c:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.d = cpu.d.wrapping_add(1),
-            "CPU.d:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.d = cpu.d.wrapping_add(1), "CPU.d:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.e = cpu.e.wrapping_add(1),
-            "CPU.e:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.e = cpu.e.wrapping_add(1), "CPU.e:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.h = cpu.h.wrapping_add(1),
-            "CPU.h:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.h = cpu.h.wrapping_add(1), "CPU.h:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.l = cpu.l.wrapping_add(1),
-            "CPU.l:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.l = cpu.l.wrapping_add(1), "CPU.l:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.sp = cpu.sp.wrapping_add(1),
-            "CPU.sp:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.sp = cpu.sp.wrapping_add(1), "CPU.sp:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.pc = cpu.pc.wrapping_add(1),
-            "CPU.pc:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.pc = cpu.pc.wrapping_add(1), "CPU.pc:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.ime = !cpu.ime,
-            "CPU.ime:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.ime = !cpu.ime, "CPU.ime:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.ime_pending = !cpu.ime_pending,
-            "CPU.ime_pending:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.ime_pending = !cpu.ime_pending, "CPU.ime_pending:");
 
-        assert_cpu_field_diff(
-            |cpu| cpu.halted = !cpu.halted,
-            "CPU.halted:",
-        );
+        assert_cpu_field_diff(|cpu| cpu.halted = !cpu.halted, "CPU.halted:");
     }
     #[test]
     fn debug_snapshot_compare_with_detects_change() {
-        let rom =
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+        let rom = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
         let mut bus = Bus::new(rom);
         bus.load_game();
@@ -559,7 +587,7 @@ mod debug_snapshot_tests {
         cpu.pc = cpu.pc.wrapping_add(1);
 
         let differences = snapshot_a.compare_with(&cpu, &bus, DiffOptions::default());
-        
+
         assert_eq!(differences.len(), 1);
 
         assert!(
@@ -570,8 +598,7 @@ mod debug_snapshot_tests {
     }
     #[test]
     fn debug_snapshot_compare_before_after_instruction() {
-        let rom =
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+        let rom = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
         let mut bus = Bus::new(rom);
         bus.load_game();
@@ -610,8 +637,7 @@ mod debug_snapshot_tests {
     }
     #[test]
     fn snapshot_step_diff_detects_change() {
-        let rom_path =
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+        let rom_path = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
         let mut bus = Bus::new(rom_path);
         bus.load_game();
@@ -650,61 +676,60 @@ mod debug_snapshot_tests {
         cpu.pc = old_pc;
     }
     #[test]
-fn snapshot_step_real_cpu_instruction_detects_changes() {
-    let rom_path =
-        "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+    fn snapshot_step_real_cpu_instruction_detects_changes() {
+        let rom_path = "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
 
-    let mut bus = Bus::new(rom_path);
-    bus.load_game();
+        let mut bus = Bus::new(rom_path);
+        bus.load_game();
 
-    let mut cpu = Cpu::new();
-    cpu.reset();
+        let mut cpu = Cpu::new();
+        cpu.reset();
 
-    let mut debugger = Debugger::new();
+        let mut debugger = Debugger::new();
 
-    // SNAPSHOT
-    debugger.capture_snapshot(&cpu, &bus);
+        // SNAPSHOT
+        debugger.capture_snapshot(&cpu, &bus);
 
-    // F2 / STEP
-    debugger.step();
+        // F2 / STEP
+        debugger.step();
 
-    assert_eq!(
-        debugger.action,
-        debug::DebugAction::Step,
-        "Debugger powinien oczekiwać wykonania jednej instrukcji"
-    );
+        assert_eq!(
+            debugger.action,
+            debug::DebugAction::Step,
+            "Debugger powinien oczekiwać wykonania jednej instrukcji"
+        );
 
-    // before_instruction() musi pozwolić wykonać instrukcję.
-    assert!(
-        debugger.before_instruction(&cpu, &mut bus),
-        "Debugger nie powinien zablokować instrukcji STEP"
-    );
+        // before_instruction() musi pozwolić wykonać instrukcję.
+        assert!(
+            debugger.before_instruction(&cpu, &mut bus),
+            "Debugger nie powinien zablokować instrukcji STEP"
+        );
 
-    // Prawdziwa instrukcja CPU.
-    let cycles = cpu.step(&mut bus);
-    let mut buffer = vec![0u32; WIDTH * HEIGHT];
-    bus.step(cycles, &mut buffer);
+        // Prawdziwa instrukcja CPU.
+        let cycles = cpu.step(&mut bus);
+        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+        bus.step(cycles, &mut buffer);
 
-    // Odpowiednik after_instruction_hook().
-    debugger.after_instruction_hook(&cpu, &mut bus);
+        // Odpowiednik after_instruction_hook().
+        debugger.after_instruction_hook(&cpu, &mut bus);
 
-    // Po wykonaniu jednej instrukcji debugger powinien się zatrzymać.
-    assert_eq!(
-        debugger.action,
-        debug::DebugAction::Break,
-        "Po STEP debugger powinien przejść do BREAK"
-    );
+        // Po wykonaniu jednej instrukcji debugger powinien się zatrzymać.
+        assert_eq!(
+            debugger.action,
+            debug::DebugAction::Break,
+            "Po STEP debugger powinien przejść do BREAK"
+        );
 
-    assert_eq!(
-        debugger.stop_reason.as_deref(),
-        Some("Single step complete"),
-        "Debugger powinien zgłosić zakończenie STEP"
-    );
+        assert_eq!(
+            debugger.stop_reason.as_deref(),
+            Some("Single step complete"),
+            "Debugger powinien zgłosić zakończenie STEP"
+        );
 
-    // Snapshot powinien zostać zużyty.
-    assert!(
-        debugger.snapshot.is_none(),
-        "Snapshot powinien zostać usunięty po STEP"
-    );
-}
+        // Snapshot powinien zostać zużyty.
+        assert!(
+            debugger.snapshot.is_none(),
+            "Snapshot powinien zostać usunięty po STEP"
+        );
+    }
 }
