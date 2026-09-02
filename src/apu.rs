@@ -68,10 +68,6 @@ impl Apu {
         }
 
         // Docelowo chcemy około 48 kHz.
-        self.sample_cycles += cycles;
-
-
-
         self.sample_cycles += cycles * SAMPLE_RATE;
 
         while self.sample_cycles >= CPU_CLOCK {
