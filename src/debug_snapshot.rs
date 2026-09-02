@@ -39,13 +39,18 @@ impl DebugSnapshot {
             debug_frames: bus.debug_frames,
         }
     }
-    pub fn compare_with(&self, cpu: &Cpu, bus: &Bus) -> Vec<String> {
+    pub fn compare_with(
+    &self,
+    cpu: &Cpu,
+    bus: &Bus,
+    options: DiffOptions,
+) -> Vec<String> {
         let current = Self::capture(cpu, bus);
         self.diff(&current)
     }
 
     pub fn print_diff(&self, cpu: &Cpu, bus: &Bus) {
-        let differences = self.compare_with(cpu, bus);
+        let differences = self.compare_with(cpu, bus, DiffOptions::default());
 
         if differences.is_empty() {
             println!("DEBUG SNAPSHOT: stany są identyczne.");
