@@ -150,7 +150,7 @@ impl Cpu {
     }
 
     fn push(&mut self, bus: &mut crate::bus::Bus, value: u16) {
-    let old_sp = self.sp;
+    let _old_sp = self.sp;
 
     self.sp = self.sp.wrapping_sub(1);
     let high_addr = self.sp;
@@ -173,13 +173,13 @@ impl Cpu {
 }
 
 fn pop(&mut self, bus: &mut crate::bus::Bus) -> u16 {
-    let old_sp = self.sp;
+    let _old_sp = self.sp;
 
-    let low_addr = self.sp;
+    let _low_addr = self.sp;
     let low = bus.read(self.sp);
     self.sp = self.sp.wrapping_add(1);
 
-    let high_addr = self.sp;
+    let _high_addr = self.sp;
     let high = bus.read(self.sp);
     self.sp = self.sp.wrapping_add(1);
 
@@ -565,7 +565,7 @@ fn execute_interrupt(
     }
 
     let if_reg = bus.read(0xFF0F);
-    let ie = bus.read(0xFFFF);
+    let _ie = bus.read(0xFFFF);
     self.ime = false;
     self.halted = false;
 

@@ -49,7 +49,7 @@ pub struct Bus {
 impl Bus {
     pub fn new(path: &str) -> Self {
         let rom = Rom::load(path).expect("Nie można wczytać ROM-u");
-        let mut mbc1 = Mbc1::new(&rom);
+        let mbc1 = Mbc1::new(&rom);
 
         Self {
             rom,
