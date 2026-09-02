@@ -679,17 +679,7 @@ impl Debugger {
             }
 
             ConsoleCommand::BreakpointList => {
-                let breakpoints = self.list_breakpoints();
-
-                if breakpoints.is_empty() {
-                    println!("No breakpoints.");
-                } else {
-                    println!("Breakpoints:");
-
-                    for address in breakpoints {
-                        println!("  {:04X}", address);
-                    }
-                }
+                self.list_breakpoints();
             }
 
             ConsoleCommand::BreakpointDelete(address) => {
@@ -707,23 +697,11 @@ impl Debugger {
             }
 
             ConsoleCommand::Watch(address) => {
-                self.watch(address, WatchType::Change);
-
-                println!("Watchpoint added: {:04X}", address);
+                self.watch(bus, address);
             }
 
             ConsoleCommand::WatchList => {
-                let watches = self.list_watches();
-
-                if watches.is_empty() {
-                    println!("No watchpoints.");
-                } else {
-                    println!("Watchpoints:");
-
-                    for (address, watch_type) in watches {
-                        println!("  {:04X} {:?}", address, watch_type);
-                    }
-                }
+                self.list_watches();
             }
 
             ConsoleCommand::WatchDelete(address) => {
