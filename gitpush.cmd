@@ -7,7 +7,6 @@ echo ========================================
 echo.
 
 git add .
-
 git commit -m "Auto commit %date% %time%"
 
 if errorlevel 1 (
@@ -29,25 +28,15 @@ if errorlevel 1 (
 )
 
 echo.
-echo ========================================
-echo       GitHub PUSH OK
-echo ========================================
+echo GitHub PUSH OK
 echo.
 
 if not exist "log" mkdir "log"
 
-for /f "delims=" %%i in ('powershell -NoProfile -Command "Get-Date -Format ''yyyy-MM-dd_HH-mm-ss''"') do set "LOGFILE=%%i"
-
-echo Uruchamianie emulatora...
-echo Log: log\log-%LOGFILE%.txt
-echo.
-
-cargo run --release > "log\log-%LOGFILE%.txt" 2>&1
+powershell -NoProfile -Command "$date = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'; cargo run --release *> ('log\log-' + $date + '.txt')"
 
 echo.
 echo Emulator zakonczyl dzialanie.
-echo Log zapisany jako:
-echo log\log-%LOGFILE%.txt
 echo.
 
 pause
