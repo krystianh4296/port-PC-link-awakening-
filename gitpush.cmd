@@ -1,4 +1,5 @@
 @echo off
+
 cd /d "%~dp0"
 
 echo ========================================
@@ -7,28 +8,34 @@ echo ========================================
 echo.
 
 git add .
+
 git commit -m "Auto commit %date% %time%"
 
 if errorlevel 1 (
     echo.
-    echo Brak zmian do zatwierdzenia lub wystapil blad.
-    pause
-    exit /b 1
-)
-
-echo.
-echo Wysylanie do GitHub - reverse-engineering...
-git push origin reverse-engineering
-
-if errorlevel 1 (
+    echo Brak zmian do zatwierdzenia - uruchamiam emulator mimo to.
     echo.
-    echo BLAD podczas pushowania!
-    pause
-    exit /b 1
+) else (
+    echo.
+    echo Commit utworzony pomyslnie.
+    echo.
+    echo Wysylanie do GitHub - reverse-engineering...
+
+    git push origin reverse-engineering
+
+    if errorlevel 1 (
+        echo.
+        echo BLAD podczas pushowania!
+        pause
+        exit /b 1
+    )
+
+    echo.
+    echo GitHub PUSH OK
 )
 
 echo.
-echo GitHub PUSH OK
+echo Uruchamianie emulatora...
 echo.
 
 if not exist "log" mkdir "log"
@@ -38,6 +45,5 @@ powershell -NoProfile -Command "$date = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'; 
 echo.
 echo Emulator zakonczyl dzialanie.
 echo.
-
 
 pause
