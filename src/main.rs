@@ -375,4 +375,237 @@ mod debug_snapshot_tests {
         // Snapshot powinien być identyczny z samym sobą.
         assert!(snapshot_a.is_identical(&snapshot_a));
     }
+
+    #[test]
+    fn debug_snapshot_diff_detects_cpu_pc_change() {
+        let rom =
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+        let mut bus = Bus::new(rom);
+        bus.load_game();
+
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
+        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+
+        // Rozgrzewka emulatora.
+        for _ in 0..100_000 {
+            let cycles = cpu.step(&mut bus);
+            bus.step(cycles, &mut buffer);
+        }
+
+        // Snapshot A.
+        let snapshot_a = DebugSnapshot::capture(&cpu, &bus);
+
+        // Zmieniamy DOKŁADNIE JEDNO pole CPU.
+        cpu.pc = cpu.pc.wrapping_add(1);
+
+        // Snapshot B.
+        let snapshot_b = DebugSnapshot::capture(&cpu, &bus);
+
+        // Diff powinien wykryć dokładnie jedną zmianę.
+        let differences = snapshot_a.diff(&snapshot_b);
+
+        assert_eq!(
+            differences.len(),
+            1,
+            "Oczekiwano dokładnie jednej różnicy, znaleziono: {:?}",
+            differences
+        );
+
+        assert!(
+            differences[0].starts_with("CPU.pc:"),
+            "Wykryta różnica nie dotyczy CPU.pc: {:?}",
+            differences
+        );
+    }
+
+    fn assert_cpu_field_diff<F>(mut change: F, expected_prefix: &str)
+    where
+        F: FnMut(&mut Cpu),
+    {
+        let rom =
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+        let mut bus = Bus::new(rom);
+        bus.load_game();
+
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
+        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+
+        for _ in 0..100_000 {
+            let cycles = cpu.step(&mut bus);
+            bus.step(cycles, &mut buffer);
+        }
+
+        // Snapshot A.
+        let snapshot_a = DebugSnapshot::capture(&cpu, &bus);
+
+        // Zmieniamy dokładnie jedno pole CPU.
+        change(&mut cpu);
+
+        // Snapshot B.
+        let snapshot_b = DebugSnapshot::capture(&cpu, &bus);
+
+        // A.diff(B).
+        let differences = snapshot_a.diff(&snapshot_b);
+
+        assert_eq!(
+            differences.len(),
+            1,
+            "Oczekiwano dokładnie jednej różnicy dla {}, znaleziono: {:?}",
+            expected_prefix,
+            differences
+        );
+
+        assert!(
+            differences[0].starts_with(expected_prefix),
+            "Oczekiwano różnicy {}, ale otrzymano: {:?}",
+            expected_prefix,
+            differences
+        );
+    }
+
+    #[test]
+    fn debug_snapshot_diff_detects_every_cpu_field() {
+        assert_cpu_field_diff(
+            |cpu| cpu.a = cpu.a.wrapping_add(1),
+            "CPU.a:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.f ^= 0x01,
+            "CPU.f:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.b = cpu.b.wrapping_add(1),
+            "CPU.b:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.c = cpu.c.wrapping_add(1),
+            "CPU.c:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.d = cpu.d.wrapping_add(1),
+            "CPU.d:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.e = cpu.e.wrapping_add(1),
+            "CPU.e:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.h = cpu.h.wrapping_add(1),
+            "CPU.h:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.l = cpu.l.wrapping_add(1),
+            "CPU.l:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.sp = cpu.sp.wrapping_add(1),
+            "CPU.sp:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.pc = cpu.pc.wrapping_add(1),
+            "CPU.pc:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.ime = !cpu.ime,
+            "CPU.ime:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.ime_pending = !cpu.ime_pending,
+            "CPU.ime_pending:",
+        );
+
+        assert_cpu_field_diff(
+            |cpu| cpu.halted = !cpu.halted,
+            "CPU.halted:",
+        );
+    }
+    #[test]
+    fn debug_snapshot_compare_with_detects_change() {
+        let rom =
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+        let mut bus = Bus::new(rom);
+        bus.load_game();
+
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
+        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+
+        for _ in 0..100_000 {
+            let cycles = cpu.step(&mut bus);
+            bus.step(cycles, &mut buffer);
+        }
+
+        let snapshot_a = DebugSnapshot::capture(&cpu, &bus);
+
+        cpu.pc = cpu.pc.wrapping_add(1);
+
+        let differences = snapshot_a.compare_with(&cpu, &bus);
+
+        assert_eq!(differences.len(), 1);
+
+        assert!(
+            differences[0].starts_with("CPU.pc:"),
+            "Nieprawidłowa różnica: {:?}",
+            differences
+        );
+    }
+    #[test]
+    fn debug_snapshot_compare_before_after_instruction() {
+        let rom =
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+        let mut bus = Bus::new(rom);
+        bus.load_game();
+
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
+        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+
+        // Doprowadzamy emulator do normalnego działania.
+        for _ in 0..100_000 {
+            let cycles = cpu.step(&mut bus);
+            bus.step(cycles, &mut buffer);
+        }
+
+        // Snapshot A — stan przed instrukcją.
+        let snapshot_a = DebugSnapshot::capture(&cpu, &bus);
+
+        // Wykonujemy dokładnie jedną instrukcję.
+        let cycles = cpu.step(&mut bus);
+        bus.step(cycles, &mut buffer);
+
+        // Snapshot B — stan po instrukcji.
+        let differences = snapshot_a.compare_with(&cpu, &bus);
+
+        assert!(
+            !differences.is_empty(),
+            "Po wykonaniu instrukcji nie wykryto żadnej zmiany stanu."
+        );
+
+        println!("Wykryte zmiany po jednej instrukcji:");
+
+        for difference in &differences {
+            println!("  {}", difference);
+        }
+    }
 }

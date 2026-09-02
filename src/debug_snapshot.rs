@@ -20,6 +20,28 @@ impl DebugSnapshot {
             debug_frames: bus.debug_frames,
         }
     }
+    pub fn compare_with(&self, cpu: &Cpu, bus: &Bus) -> Vec<String> {
+        let current = Self::capture(cpu, bus);
+        self.diff(&current)
+    }
+    
+    pub fn print_diff(&self, cpu: &Cpu, bus: &Bus) {
+    let differences = self.compare_with(cpu, bus);
+
+    if differences.is_empty() {
+        println!("DEBUG SNAPSHOT: stany są identyczne.");
+        return;
+    }
+
+    println!(
+        "DEBUG SNAPSHOT: wykryto {} różnic:",
+        differences.len()
+    );
+
+    for difference in differences {
+        println!("  {}", difference);
+    }
+}
 
     pub fn diff(&self, other: &Self) -> Vec<String> {
         let mut differences = Vec::new();
