@@ -8,6 +8,9 @@ mod savestate;
 mod debug;
 
 use std::env;
+use std::io::{self, BufRead};
+use std::sync::mpsc;
+use std::thread;
 
 use bus::Bus;
 use cpu::Cpu;
@@ -29,7 +32,6 @@ fn main() {
     let audio = Audio::new();
 
     let mut bus = Bus::new(&rom_path);
-
     bus.load_game();
 
     let mut cpu = Cpu::new();
@@ -47,7 +49,23 @@ fn main() {
     println!("RAM size code: {:02X}", bus.rom.ram_size_code());
     println!("CPU uruchomiony. PC={:04X} SP={:04X}", cpu.pc, cpu.sp);
     println!("Sterowanie: WASD = D-pad, J = A, K = B, U = Select, I = Start");
-    println!("DEBUG: F1=włącz/wyłącz, F2=step, F3=continue, F4=break, F10=breakpoint PC, F11=usuń breakpoint, F12=status");
+    println!("DEBUG: F1=włącz/wyłącz, F2=1 instrukcja, F3=continue, F4=break, F10=BP PC, F11=usuń BP, F12=status");
+    println!("DEBUG CONSOLE: BP 01A6 | WATCH FF44 | TRACE 0100:0200 | DIS 03CE 3 | HELP");
+
+    let (debug_tx, debug_rx) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        let stdin = io::stdin();
+        for line in stdin.lock().lines() {
+            match line {
+                Ok(line) => {
+                    if debug_tx.send(line).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
 
     let mut window = Window::new(
         "Game Boy Emulator",
@@ -89,6 +107,10 @@ fn main() {
     let mut f12_key_lock = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        while let Ok(command) = debug_rx.try_recv() {
+            handle_debug_command(&command, &mut debugger, &mut cpu, &mut bus);
+        }
+
         let mut buttons = 0xFFu8;
 
         let f1_down = window.is_key_down(Key::F1);
@@ -112,89 +134,61 @@ fn main() {
                 debugger.print_status(&cpu);
                 println!("DEBUG: włączony");
             }
-
             f1_key_lock = true;
         }
-
-        if !f1_down {
-            f1_key_lock = false;
-        }
+        if !f1_down { f1_key_lock = false; }
 
         if f2_down && !f2_key_lock {
             debugger.step();
-            println!("DEBUG: step przygotowany");
+            println!("DEBUG: STEP -> wykonana zostanie dokładnie 1 instrukcja CPU");
             f2_key_lock = true;
         }
-
-        if !f2_down {
-            f2_key_lock = false;
-        }
+        if !f2_down { f2_key_lock = false; }
 
         if f3_down && !f3_key_lock {
             debugger.continue_execution();
             println!("DEBUG: continue");
             f3_key_lock = true;
         }
-
-        if !f3_down {
-            f3_key_lock = false;
-        }
+        if !f3_down { f3_key_lock = false; }
 
         if f4_down && !f4_key_lock {
             debugger.break_now(format!("Manual break at PC={:04X}", cpu.pc));
             debugger.print_status(&cpu);
+            debugger.print_stop_disassembly(&mut bus, cpu.pc);
             f4_key_lock = true;
         }
-
-        if !f4_down {
-            f4_key_lock = false;
-        }
+        if !f4_down { f4_key_lock = false; }
 
         if f5_down && !f5_key_lock {
             bus.save_game();
             println!("Gra zapisana.");
-
             f5_key_lock = true;
         }
-
-        if !f5_down {
-            f5_key_lock = false;
-        }
+        if !f5_down { f5_key_lock = false; }
 
         if f6_down && !f6_key_lock {
             bus.load_game();
             println!("Gra wczytana.");
-
             f6_key_lock = true;
         }
-
-        if !f6_down {
-            f6_key_lock = false;
-        }
+        if !f6_down { f6_key_lock = false; }
 
         if f8_down && !f8_key_lock {
             let state = SaveState::capture(&cpu, &bus);
             save_to_file(&state, "save.state");
             println!("Savestate zapisany.");
-
             f8_key_lock = true;
         }
-
-        if !f8_down {
-            f8_key_lock = false;
-        }
+        if !f8_down { f8_key_lock = false; }
 
         if f9_down && !f9_key_lock {
             let state = load_from_file("save.state");
             state.restore(&mut cpu, &mut bus);
             println!("Savestate wczytany.");
-
             f9_key_lock = true;
         }
-
-        if !f9_down {
-            f9_key_lock = false;
-        }
+        if !f9_down { f9_key_lock = false; }
 
         if f10_down && !f10_key_lock {
             if debugger.has_breakpoint(cpu.pc) {
@@ -203,57 +197,32 @@ fn main() {
                 debugger.add_breakpoint(cpu.pc);
                 println!("DEBUG: breakpoint dodany na {:04X}", cpu.pc);
             }
-
             f10_key_lock = true;
         }
-
-        if !f10_down {
-            f10_key_lock = false;
-        }
+        if !f10_down { f10_key_lock = false; }
 
         if f11_down && !f11_key_lock {
             debugger.remove_breakpoint(cpu.pc);
             println!("DEBUG: breakpoint usunięty z {:04X}", cpu.pc);
             f11_key_lock = true;
         }
-
-        if !f11_down {
-            f11_key_lock = false;
-        }
+        if !f11_down { f11_key_lock = false; }
 
         if f12_down && !f12_key_lock {
             debugger.print_status(&cpu);
+            debugger.print_stop_disassembly(&mut bus, cpu.pc);
             f12_key_lock = true;
         }
+        if !f12_down { f12_key_lock = false; }
 
-        if !f12_down {
-            f12_key_lock = false;
-        }
-
-        if window.is_key_down(Key::D) {
-            buttons &= !(1 << 0);
-        }
-        if window.is_key_down(Key::A) {
-            buttons &= !(1 << 1);
-        }
-        if window.is_key_down(Key::W) {
-            buttons &= !(1 << 2);
-        }
-        if window.is_key_down(Key::S) {
-            buttons &= !(1 << 3);
-        }
-        if window.is_key_down(Key::J) {
-            buttons &= !(1 << 4);
-        }
-        if window.is_key_down(Key::K) {
-            buttons &= !(1 << 5);
-        }
-        if window.is_key_down(Key::U) {
-            buttons &= !(1 << 6);
-        }
-        if window.is_key_down(Key::I) {
-            buttons &= !(1 << 7);
-        }
+        if window.is_key_down(Key::D) { buttons &= !(1 << 0); }
+        if window.is_key_down(Key::A) { buttons &= !(1 << 1); }
+        if window.is_key_down(Key::W) { buttons &= !(1 << 2); }
+        if window.is_key_down(Key::S) { buttons &= !(1 << 3); }
+        if window.is_key_down(Key::J) { buttons &= !(1 << 4); }
+        if window.is_key_down(Key::K) { buttons &= !(1 << 5); }
+        if window.is_key_down(Key::U) { buttons &= !(1 << 6); }
+        if window.is_key_down(Key::I) { buttons &= !(1 << 7); }
 
         bus.set_buttons(buttons);
 
@@ -263,26 +232,113 @@ fn main() {
         if execute_instruction {
             let cycles = cpu.step(&mut bus);
             frame_ready = bus.step(cycles, &mut buffer);
-            debugger.after_instruction_hook();
+            debugger.after_instruction_hook(&cpu, &mut bus);
             steps += 1;
         }
 
         if frame_ready {
             debugger.next_frame(&mut bus);
-
-            window
-                .update_with_buffer(&buffer, WIDTH, HEIGHT)
-                .expect("Błąd aktualizacji ekranu");
+            window.update_with_buffer(&buffer, WIDTH, HEIGHT).expect("Błąd aktualizacji ekranu");
         } else if !execute_instruction {
             window.update();
         }
 
         if steps % 50_000 == 0 && steps != 0 {
             bus.render_tile_debug(&mut tile_buffer);
-            tile_window
-                .update_with_buffer(&tile_buffer, TILE_DEBUG_WIDTH, TILE_DEBUG_HEIGHT)
-                .unwrap();
+            tile_window.update_with_buffer(&tile_buffer, TILE_DEBUG_WIDTH, TILE_DEBUG_HEIGHT).unwrap();
         }
+    }
+}
+
+fn parse_hex_u16(value: &str) -> Option<u16> {
+    let value = value.trim_start_matches('$');
+    u16::from_str_radix(value, 16).ok()
+}
+
+fn handle_debug_command(command: &str, debugger: &mut Debugger, cpu: &mut Cpu, bus: &mut Bus) {
+    let parts: Vec<_> = command.split_whitespace().collect();
+    if parts.is_empty() { return; }
+
+    match parts[0].to_ascii_uppercase().as_str() {
+        "HELP" => {
+            println!("BP XXXX        dodaj breakpoint");
+            println!("BP DEL XXXX    usuń breakpoint");
+            println!("BP LIST        pokaż breakpointy");
+            println!("WATCH XXXX     obserwuj zmianę wartości");
+            println!("WATCH DEL XXXX usuń watchpoint");
+            println!("WATCH LIST     pokaż watchpointy");
+            println!("TRACE XXXX YYYY włącz trace zakresu PC");
+            println!("TRACE OFF      wyłącz trace");
+            println!("DIS XXXX [N]   disassembly N instrukcji, domyślnie 3");
+            println!("STEP           wykonaj dokładnie 1 instrukcję CPU");
+            println!("CONT           kontynuuj");
+            println!("BREAK          zatrzymaj CPU");
+            println!("STATUS         status CPU + disassembly");
+        }
+        "BP" => match parts.get(1).map(|s| s.to_ascii_uppercase()) {
+            Some(mode) if mode == "LIST" => debugger.list_breakpoints(),
+            Some(mode) if mode == "DEL" => {
+                if let Some(value) = parts.get(2).and_then(|s| parse_hex_u16(s)) {
+                    debugger.remove_breakpoint(value);
+                    println!("DEBUG: BP usunięty {:04X}", value);
+                } else { println!("DEBUG: użycie BP DEL XXXX"); }
+            }
+            Some(_) => {
+                if let Some(value) = parts.get(1).and_then(|s| parse_hex_u16(s)) {
+                    debugger.add_breakpoint(value);
+                    println!("DEBUG: BP dodany {:04X}", value);
+                } else { println!("DEBUG: użycie BP XXXX"); }
+            }
+            None => println!("DEBUG: użycie BP XXXX | BP DEL XXXX | BP LIST"),
+        },
+        "WATCH" => match parts.get(1).map(|s| s.to_ascii_uppercase()) {
+            Some(mode) if mode == "LIST" => debugger.list_watches(),
+            Some(mode) if mode == "DEL" => {
+                if let Some(value) = parts.get(2).and_then(|s| parse_hex_u16(s)) {
+                    debugger.unwatch(value);
+                } else { println!("DEBUG: użycie WATCH DEL XXXX"); }
+            }
+            Some(_) => {
+                if let Some(value) = parts.get(1).and_then(|s| parse_hex_u16(s)) {
+                    debugger.watch(bus, value);
+                } else { println!("DEBUG: użycie WATCH XXXX"); }
+            }
+            None => println!("DEBUG: użycie WATCH XXXX | WATCH DEL XXXX | WATCH LIST"),
+        },
+        "TRACE" => {
+            if parts.get(1).map(|s| s.eq_ignore_ascii_case("OFF")).unwrap_or(false) {
+                debugger.disable_trace();
+            } else if let (Some(start), Some(end)) = (
+                parts.get(1).and_then(|s| parse_hex_u16(s)),
+                parts.get(2).and_then(|s| parse_hex_u16(s)),
+            ) {
+                debugger.set_trace_range(start, end);
+            } else { println!("DEBUG: użycie TRACE XXXX YYYY | TRACE OFF"); }
+        }
+        "DIS" => {
+            if let Some(start) = parts.get(1).and_then(|s| parse_hex_u16(s)) {
+                let count = parts.get(2).and_then(|s| s.parse::<usize>().ok()).unwrap_or(3);
+                debugger.print_disassembly(bus, start, count);
+            } else { println!("DEBUG: użycie DIS XXXX [N]"); }
+        }
+        "STEP" => {
+            debugger.step();
+            println!("DEBUG: STEP -> dokładnie 1 instrukcja CPU");
+        }
+        "CONT" | "CONTINUE" => {
+            debugger.continue_execution();
+            println!("DEBUG: continue");
+        }
+        "BREAK" => {
+            debugger.break_now(format!("Console break at PC={:04X}", cpu.pc));
+            debugger.print_status(cpu);
+            debugger.print_stop_disassembly(bus, cpu.pc);
+        }
+        "STATUS" => {
+            debugger.print_status(cpu);
+            debugger.print_stop_disassembly(bus, cpu.pc);
+        }
+        _ => println!("DEBUG: nieznana komenda '{}'. Wpisz HELP", command),
     }
 }
 
