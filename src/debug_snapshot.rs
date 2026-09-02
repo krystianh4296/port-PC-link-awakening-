@@ -4,6 +4,7 @@ use crate::savestate::{
     ApuState, BusState, CpuState, Mbc1State, NoiseChannelState,
     SaveState, SquareChannelState, WaveChannelState,
 };
+
 #[derive(Clone, Copy)]
 pub struct DiffOptions {
     pub max_vram_lines: usize,
@@ -24,6 +25,7 @@ impl Default for DiffOptions {
         }
     }
 }
+
 #[derive(Clone)]
 pub struct DebugSnapshot {
     pub state: SaveState,
@@ -39,7 +41,7 @@ impl DebugSnapshot {
             debug_frames: bus.debug_frames,
         }
     }
-    
+
     pub fn diff_with_options(
         &self,
         other: &Self,
@@ -80,7 +82,7 @@ impl DebugSnapshot {
 
         differences
     }
-    
+
     pub fn diff(&self, other: &Self) -> Vec<String> {
         self.diff_with_options(
             other,
@@ -93,38 +95,6 @@ impl DebugSnapshot {
             },
         )
     }
-    pub fn limit_memory_lines(
-        lines: Vec<String>,
-        prefix: &str,
-        max_lines: usize,
-    ) -> Vec<String> {
-        let mut result = Vec::new();
-        let mut kept = 0;
-        let mut skipped = 0;
-
-        for line in lines {
-            if line.starts_with(prefix) {
-                if kept < max_lines {
-                    result.push(line);
-                    kept += 1;
-                } else {
-                    skipped += 1;
-                }
-            } else {
-                result.push(line);
-            }
-        }
-
-        if skipped > 0 {
-            result.push(format!(
-                "{}... pominięto {} kolejnych zmian",
-                prefix.trim_end_matches('['),
-                skipped
-            ));
-        }
-
-        result
-    }
 
     pub fn compare_with(
         &self,
@@ -133,35 +103,7 @@ impl DebugSnapshot {
         options: DiffOptions,
     ) -> Vec<String> {
         let current = Self::capture(cpu, bus);
-        let mut differences = self.diff(&current);
-
-        if !options.show_opcode_counts {
-            differences.retain(|line| !line.starts_with("CPU.opcode_counts"));
-        }
-
-        if !options.show_debug_counters {
-            differences.retain(|line| !line.starts_with("Bus.debug_frames"));
-        }
-
-        differences = Self::limit_memory_lines(
-            differences,
-            "Bus.vram[",
-            options.max_vram_lines,
-        );
-
-        differences = Self::limit_memory_lines(
-            differences,
-            "Bus.wram[",
-            options.max_wram_lines,
-        );
-
-        differences = Self::limit_memory_lines(
-            differences,
-            "Bus.oam[",
-            options.max_oam_lines,
-        );
-
-        differences
+        self.diff_with_options(&current, options)
     }
 
     pub fn is_identical(&self, other: &Self) -> bool {
@@ -220,9 +162,27 @@ fn diff_bus(
     out: &mut Vec<String>,
     options: DiffOptions,
 ) {
-    diff_bytes("Bus.vram", &a.vram, &b.vram, out, None);
-    diff_bytes("Bus.wram", &a.wram, &b.wram, out, None);
-    diff_bytes("Bus.oam", &a.oam, &b.oam, out, None);
+    diff_bytes(
+        "Bus.vram",
+        &a.vram,
+        &b.vram,
+        out,
+        Some(options.max_vram_lines),
+    );
+    diff_bytes(
+        "Bus.wram",
+        &a.wram,
+        &b.wram,
+        out,
+        Some(options.max_wram_lines),
+    );
+    diff_bytes(
+        "Bus.oam",
+        &a.oam,
+        &b.oam,
+        out,
+        Some(options.max_oam_lines),
+    );
     diff_bytes("Bus.hram", &a.hram, &b.hram, out, None);
     diff_bytes("Bus.io", &a.io, &b.io, out, None);
 
