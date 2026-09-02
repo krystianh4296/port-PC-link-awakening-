@@ -6,7 +6,7 @@ use crate::{
     bus::Bus,
     cpu::Cpu,
     debug_snapshot::{DebugSnapshot, DiffOptions},
-}
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DebugAction { Run, Step, Continue, Break }
