@@ -4,7 +4,26 @@ use crate::savestate::{
     ApuState, BusState, CpuState, Mbc1State, NoiseChannelState,
     SaveState, SquareChannelState, WaveChannelState,
 };
+#[derive(Clone, Copy)]
+pub struct DiffOptions {
+    pub max_vram_lines: usize,
+    pub max_wram_lines: usize,
+    pub max_oam_lines: usize,
+    pub show_opcode_counts: bool,
+    pub show_debug_counters: bool,
+}
 
+impl Default for DiffOptions {
+    fn default() -> Self {
+        Self {
+            max_vram_lines: 32,
+            max_wram_lines: 32,
+            max_oam_lines: 32,
+            show_opcode_counts: false,
+            show_debug_counters: false,
+        }
+    }
+}
 #[derive(Clone)]
 pub struct DebugSnapshot {
     pub state: SaveState,
