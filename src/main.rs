@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use bus::Bus;
 use cpu::Cpu;
 use debug::{ConsoleCommand, DebugConsole, Debugger};
+use debug_snapshot::DebugSnapshot;
 use minifb::{Key, Window, WindowOptions};
 use audio::Audio;
 use savestate::{SaveState, save_to_file, load_from_file};
@@ -342,5 +343,36 @@ mod savestate_tests {
 
         compare_cpu(&cpu, &cpu_saved).unwrap();
         compare_bus(&bus, &bus_saved).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod debug_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn debug_snapshot_capture_works() {
+        let rom =
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb";
+
+        let mut bus = Bus::new(rom);
+        bus.load_game();
+
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
+        let mut buffer = vec![0u32; WIDTH * HEIGHT];
+
+        // Rozgrzewka emulatora.
+        for _ in 0..100_000 {
+            let cycles = cpu.step(&mut bus);
+            bus.step(cycles, &mut buffer);
+        }
+
+        // Punkt 1: tworzymy DebugSnapshot A.
+        let snapshot_a = DebugSnapshot::capture(&cpu, &bus);
+
+        // Snapshot powinien być identyczny z samym sobą.
+        assert!(snapshot_a.is_identical(&snapshot_a));
     }
 }
