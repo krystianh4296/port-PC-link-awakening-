@@ -38,12 +38,12 @@ echo.
 echo Uruchamianie emulatora...
 echo.
 
-if not exist "log" mkdir "log"
+@REM if not exist "log" mkdir "log"
 
-powershell -NoProfile -Command "$date = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'; cargo run --release *> ('log\log-' + $date + '.txt')"
+@REM powershell -NoProfile -Command "$date = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'; cargo run --release *> ('log\log-' + $date + '.txt')"
 
-echo.
-echo Emulator zakonczyl dzialanie.
-echo.
+@REM echo.
+@REM echo Emulator zakonczyl dzialanie.
+@REM echo.
 
 pause
