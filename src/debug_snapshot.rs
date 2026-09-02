@@ -40,31 +40,41 @@ impl DebugSnapshot {
         }
     }
     pub fn compare_with(
-    &self,
-    cpu: &Cpu,
-    bus: &Bus,
-    options: DiffOptions,
-) -> Vec<String> {
+        &self,
+        cpu: &Cpu,
+        bus: &Bus,
+        options: DiffOptions,
+    ) -> Vec<String> {
         let current = Self::capture(cpu, bus);
-        self.diff(&current)
-    }
+        let mut differences = self.diff(&current);
 
-    pub fn print_diff(&self, cpu: &Cpu, bus: &Bus) {
-        let differences = self.compare_with(cpu, bus, DiffOptions::default());
-
-        if differences.is_empty() {
-            println!("DEBUG SNAPSHOT: stany są identyczne.");
-            return;
+        if !options.show_opcode_counts {
+            differences.retain(|line| !line.starts_with("CPU.opcode_counts"));
         }
 
-        println!(
-            "DEBUG SNAPSHOT: wykryto {} różnic:",
-            differences.len()
+        if !options.show_debug_counters {
+            differences.retain(|line| !line.starts_with("Bus.debug_frames"));
+        }
+
+        differences = limit_memory_lines(
+            differences,
+            "Bus.vram[",
+            options.max_vram_lines,
         );
 
-        for difference in differences {
-            println!("  {}", difference);
-        }
+        differences = limit_memory_lines(
+            differences,
+            "Bus.wram[",
+            options.max_wram_lines,
+        );
+
+        differences = limit_memory_lines(
+            differences,
+            "Bus.oam[",
+            options.max_oam_lines,
+        );
+
+        differences
     }
 
     pub fn diff(&self, other: &Self) -> Vec<String> {
@@ -96,6 +106,39 @@ impl DebugSnapshot {
         self.diff(other).is_empty()
     }
 }
+
+    fn limit_memory_lines(
+        lines: Vec<String>,
+        prefix: &str,
+        max_lines: usize,
+    ) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut kept = 0;
+        let mut skipped = 0;
+
+        for line in lines {
+            if line.starts_with(prefix) {
+                if kept < max_lines {
+                    result.push(line);
+                    kept += 1;
+                } else {
+                    skipped += 1;
+                }
+            } else {
+                result.push(line);
+            }
+        }
+
+        if skipped > 0 {
+            result.push(format!(
+                "{}... pominięto {} kolejnych zmian",
+                prefix.trim_end_matches('['),
+                skipped
+            ));
+        }
+
+        result
+    }
 
 fn diff_cpu(a: &CpuState, b: &CpuState, out: &mut Vec<String>) {
     macro_rules! check {
