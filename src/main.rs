@@ -681,7 +681,9 @@ fn snapshot_step_real_cpu_instruction_detects_changes() {
     );
 
     // Prawdziwa instrukcja CPU.
-    let _cycles = cpu.step(&mut bus);
+    let cycles = cpu.step(&mut bus);
+    let mut buffer = vec![0u32; WIDTH * HEIGHT];
+    bus.step(cycles, &mut buffer);
 
     // Odpowiednik after_instruction_hook().
     debugger.after_instruction_hook(&cpu, &mut bus);
