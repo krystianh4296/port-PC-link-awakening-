@@ -5,6 +5,7 @@ mod apu;
 mod audio;
 mod save;
 mod savestate;
+mod debug;
 
 use std::env;
 
