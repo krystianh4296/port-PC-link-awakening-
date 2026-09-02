@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use bus::Bus;
 use cpu::Cpu;
 use debug::{ConsoleCommand, DebugConsole, Debugger};
-use debug_snapshot::DebugSnapshot;
+use debug_snapshot::{DebugSnapshot, DiffOptions};
 use minifb::{Key, Window, WindowOptions};
 use audio::Audio;
 use savestate::{SaveState, save_to_file, load_from_file};
@@ -558,8 +558,8 @@ mod debug_snapshot_tests {
 
         cpu.pc = cpu.pc.wrapping_add(1);
 
-        let differences = snapshot_a.compare_with(&cpu, &bus);
-
+        let differences = snapshot_a.compare_with(&cpu, &bus, DiffOptions::default());
+        
         assert_eq!(differences.len(), 1);
 
         assert!(
@@ -595,7 +595,7 @@ mod debug_snapshot_tests {
         bus.step(cycles, &mut buffer);
 
         // Snapshot B — stan po instrukcji.
-        let differences = snapshot_a.compare_with(&cpu, &bus);
+        let differences = snapshot_a.compare_with(&cpu, &bus, DiffOptions::default());
 
         assert!(
             !differences.is_empty(),
@@ -633,7 +633,7 @@ mod debug_snapshot_tests {
             .as_ref()
             .expect("Snapshot powinien istnieć");
 
-        let differences = snapshot.compare_with(&cpu, &bus);
+        let differences = snapshot.compare_with(&cpu, &bus, DiffOptions::default());
 
         assert!(
             !differences.is_empty(),

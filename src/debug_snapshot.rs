@@ -40,31 +40,59 @@ impl DebugSnapshot {
         }
     }
     
-    pub fn diff(&self, other: &Self) -> Vec<String> {
+    pub fn diff_with_options(
+        &self,
+        other: &Self,
+        options: DiffOptions,
+    ) -> Vec<String> {
         let mut differences = Vec::new();
 
         diff_cpu(&self.state.cpu, &other.state.cpu, &mut differences);
-        diff_bus(&self.state.bus, &other.state.bus, &mut differences);
+        diff_bus(
+            &self.state.bus,
+            &other.state.bus,
+            &mut differences,
+            options,
+        );
 
-        for i in 0..256 {
-            if self.opcode_counts[i] != other.opcode_counts[i] {
-                differences.push(format!(
-                    "CPU.opcode_counts[{:02X}]: {} != {}",
-                    i, self.opcode_counts[i], other.opcode_counts[i]
-                ));
+        if options.show_opcode_counts {
+            for i in 0..256 {
+                if self.opcode_counts[i] != other.opcode_counts[i] {
+                    differences.push(format!(
+                        "CPU.opcode_counts[{:02X}]: {} != {}",
+                        i,
+                        self.opcode_counts[i],
+                        other.opcode_counts[i]
+                    ));
+                }
             }
         }
 
-        if self.debug_frames != other.debug_frames {
+        if options.show_debug_counters
+            && self.debug_frames != other.debug_frames
+        {
             differences.push(format!(
                 "Bus.debug_frames: {} != {}",
-                self.debug_frames, other.debug_frames
+                self.debug_frames,
+                other.debug_frames
             ));
         }
 
         differences
     }
-
+    
+    pub fn diff(&self, other: &Self) -> Vec<String> {
+        self.diff_with_options(
+            other,
+            DiffOptions {
+                max_vram_lines: usize::MAX,
+                max_wram_lines: usize::MAX,
+                max_oam_lines: usize::MAX,
+                show_opcode_counts: true,
+                show_debug_counters: true,
+            },
+        )
+    }
     pub fn limit_memory_lines(
         lines: Vec<String>,
         prefix: &str,
@@ -186,12 +214,17 @@ fn diff_cpu(a: &CpuState, b: &CpuState, out: &mut Vec<String>) {
     check!(halted);
 }
 
-fn diff_bus(a: &BusState, b: &BusState, out: &mut Vec<String>) {
-    diff_bytes("Bus.vram", &a.vram, &b.vram, out);
-    diff_bytes("Bus.wram", &a.wram, &b.wram, out);
-    diff_bytes("Bus.oam", &a.oam, &b.oam, out);
-    diff_bytes("Bus.hram", &a.hram, &b.hram, out);
-    diff_bytes("Bus.io", &a.io, &b.io, out);
+fn diff_bus(
+    a: &BusState,
+    b: &BusState,
+    out: &mut Vec<String>,
+    options: DiffOptions,
+) {
+    diff_bytes("Bus.vram", &a.vram, &b.vram, out, None);
+    diff_bytes("Bus.wram", &a.wram, &b.wram, out, None);
+    diff_bytes("Bus.oam", &a.oam, &b.oam, out, None);
+    diff_bytes("Bus.hram", &a.hram, &b.hram, out, None);
+    diff_bytes("Bus.io", &a.io, &b.io, out, None);
 
     macro_rules! check {
         ($field:ident) => {
@@ -251,7 +284,7 @@ fn diff_mbc1(a: &Mbc1State, b: &Mbc1State, out: &mut Vec<String>) {
     check!(rom_bank_high);
     check!(banking_mode);
     check!(ram_enabled);
-    diff_bytes("MBC1.ram", &a.ram, &b.ram, out);
+    diff_bytes("MBC1.ram", &a.ram, &b.ram, out, None);
 }
 
 fn diff_apu(a: &ApuState, b: &ApuState, out: &mut Vec<String>) {
@@ -361,20 +394,42 @@ fn diff_noise(name: &str, a: &NoiseChannelState, b: &NoiseChannelState, out: &mu
     check!(lfsr);
 }
 
-fn diff_bytes(name: &str, a: &[u8], b: &[u8], out: &mut Vec<String>) {
+fn diff_bytes(
+    name: &str,
+    a: &[u8],
+    b: &[u8],
+    out: &mut Vec<String>,
+    max_lines: Option<usize>,
+) {
     if a == b {
         return;
     }
 
     let max_len = a.len().max(b.len());
+    let mut changes = 0usize;
+    let mut skipped = 0usize;
+
     for i in 0..max_len {
         let av = a.get(i).copied();
         let bv = b.get(i).copied();
+
         if av != bv {
-            out.push(format!(
-                "{}[0x{:04X}]: {:?} != {:?}",
-                name, i, av, bv
-            ));
+            if max_lines.map_or(true, |limit| changes < limit) {
+                out.push(format!(
+                    "{}[0x{:04X}]: {:?} != {:?}",
+                    name, i, av, bv
+                ));
+                changes += 1;
+            } else {
+                skipped += 1;
+            }
         }
+    }
+
+    if skipped > 0 {
+        out.push(format!(
+            "{}: ... pominięto {} kolejnych zmian",
+            name, skipped
+        ));
     }
 }
