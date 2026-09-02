@@ -12,6 +12,7 @@ use bus::Bus;
 use cpu::Cpu;
 use minifb::{Key, Window, WindowOptions};
 use audio::Audio;
+use savestate::{SaveState, save_to_file, load_from_file};
 
 const WIDTH: usize = 160;
 const HEIGHT: usize = 144;
@@ -92,6 +93,17 @@ fn main() {
 
         if window.is_key_pressed(Key::F6, minifb::KeyRepeat::No) {
             bus.load_game();
+        }
+        if window.is_key_pressed(Key::F8, minifb::KeyRepeat::No) {
+            let state = SaveState::capture(&cpu, &bus);
+            save_to_file(&state, "save.state");
+            println!("Savestate zapisany.");
+        }
+
+        if window.is_key_pressed(Key::F9, minifb::KeyRepeat::No) {
+            let state = load_from_file("save.state");
+            state.restore(&mut cpu, &mut bus);
+            println!("Savestate wczytany.");
         }
 
         if window.is_key_down(Key::D) {

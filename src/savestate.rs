@@ -57,112 +57,117 @@ pub struct BusState {
 }
 
 impl SaveState {
-    pub fn path_from_rom(rom_path: &Path) -> PathBuf {
-        rom_path.with_extension("state")
-    }
+    pub fn capture(cpu: &Cpu, bus: &Bus) -> Self {
+        Self {
+            cpu: CpuState {
+                a: cpu.a,
+                f: cpu.f,
+                b: cpu.b,
+                c: cpu.c,
+                d: cpu.d,
+                e: cpu.e,
+                h: cpu.h,
+                l: cpu.l,
 
-    pub fn save_cpu(cpu: &Cpu, path: &Path) -> Result<(), String> {
-        let mut data = Vec::new();
+                pc: cpu.pc,
+                sp: cpu.sp,
 
-        // Nagłówek
-        data.extend_from_slice(SAVE_STATE_MAGIC);
+                ime: cpu.ime,
+                halted: cpu.halted,
+            },
 
-        // CPU
-        data.push(cpu.a);
-        data.push(cpu.f);
+            bus: BusState {
+                vram: bus.vram,
+                wram: bus.wram,
+                eram: bus.eram,
+                oam: bus.oam,
+                hram: bus.hram,
+                io: bus.io,
 
-        data.push(cpu.b);
-        data.push(cpu.c);
+                ie: bus.ie,
+                if_reg: bus.if_reg,
 
-        data.push(cpu.d);
-        data.push(cpu.e);
+                lcdc: bus.lcdc,
+                stat: bus.stat,
+                ly: bus.ly,
+                lyc: bus.lyc,
+                scx: bus.scx,
+                scy: bus.scy,
 
-        data.push(cpu.h);
-        data.push(cpu.l);
+                bgp: bus.bgp,
+                obp0: bus.obp0,
+                obp1: bus.obp1,
 
-        data.extend_from_slice(&cpu.sp.to_le_bytes());
-        data.extend_from_slice(&cpu.pc.to_le_bytes());
+                lcd_cycles: bus.lcd_cycles,
+                timer_cycles: bus.timer_cycles,
 
-        data.push(cpu.ime as u8);
-        data.push(cpu.ime_pending as u8);
-        data.push(cpu.halted as u8);
-
-        fs::write(path, data)
-            .map_err(|e| format!("Nie można zapisać Save State: {}", e))?;
-
-        println!(
-            "SAVE STATE: zapisano -> {}",
-            path.display()
-        );
-
-        Ok(())
-    }
-
-    pub fn load_cpu(cpu: &mut Cpu, path: &Path) -> Result<(), String> {
-        let data = fs::read(path)
-            .map_err(|e| format!("Nie można wczytać Save State: {}", e))?;
-
-        if data.len() < 8 {
-            return Err("Save State jest uszkodzony.".to_string());
+                current_rom_bank: bus.current_rom_bank,
+                current_ram_bank: bus.current_ram_bank,
+                ram_enabled: bus.ram_enabled,
+            },
         }
-
-        if &data[0..8] != SAVE_STATE_MAGIC {
-            return Err("Nieprawidłowy plik Save State.".to_string());
-        }
-
-        let mut offset = 8;
-
-        cpu.a = data[offset];
-        offset += 1;
-
-        cpu.f = data[offset] & 0xF0;
-        offset += 1;
-
-        cpu.b = data[offset];
-        offset += 1;
-
-        cpu.c = data[offset];
-        offset += 1;
-
-        cpu.d = data[offset];
-        offset += 1;
-
-        cpu.e = data[offset];
-        offset += 1;
-
-        cpu.h = data[offset];
-        offset += 1;
-
-        cpu.l = data[offset];
-        offset += 1;
-
-        cpu.sp = u16::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-        ]);
-        offset += 2;
-
-        cpu.pc = u16::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-        ]);
-        offset += 2;
-
-        cpu.ime = data[offset] != 0;
-        offset += 1;
-
-        cpu.ime_pending = data[offset] != 0;
-        offset += 1;
-
-        cpu.halted = data[offset] != 0;
-
-        println!(
-            "SAVE STATE: wczytano <- {} | PC={:04X} SP={:04X}",
-            path.display(),
-            cpu.pc,
-            cpu.sp
-        );
-
-        Ok(())
     }
+    pub fn restore(self, cpu: &mut Cpu, bus: &mut Bus) {
+        cpu.a = self.cpu.a;
+        cpu.f = self.cpu.f;
+        cpu.b = self.cpu.b;
+        cpu.c = self.cpu.c;
+        cpu.d = self.cpu.d;
+        cpu.e = self.cpu.e;
+        cpu.h = self.cpu.h;
+        cpu.l = self.cpu.l;
+
+        cpu.pc = self.cpu.pc;
+        cpu.sp = self.cpu.sp;
+
+        cpu.ime = self.cpu.ime;
+        cpu.halted = self.cpu.halted;
+
+        bus.vram = self.bus.vram;
+        bus.wram = self.bus.wram;
+        bus.eram = self.bus.eram;
+        bus.oam = self.bus.oam;
+        bus.hram = self.bus.hram;
+        bus.io = self.bus.io;
+
+        bus.ie = self.bus.ie;
+        bus.if_reg = self.bus.if_reg;
+
+        bus.lcdc = self.bus.lcdc;
+        bus.stat = self.bus.stat;
+        bus.ly = self.bus.ly;
+        bus.lyc = self.bus.lyc;
+        bus.scx = self.bus.scx;
+        bus.scy = self.bus.scy;
+
+        bus.bgp = self.bus.bgp;
+        bus.obp0 = self.bus.obp0;
+        bus.obp1 = self.bus.obp1;
+
+        bus.lcd_cycles = self.bus.lcd_cycles;
+        bus.timer_cycles = self.bus.timer_cycles;
+
+        bus.current_rom_bank = self.bus.current_rom_bank;
+        bus.current_ram_bank = self.bus.current_ram_bank;
+        bus.ram_enabled = self.bus.ram_enabled;
+    }
+pub fn save_to_file(state: &SaveState, path: &str) {
+    let bytes = bincode::serde::encode_to_vec(
+        state,
+        bincode::config::standard()
+    ).unwrap();
+
+    let mut file = File::create(path).unwrap();
+    file.write_all(&bytes).unwrap();
+}
+pub fn load_from_file(path: &str) -> SaveState {
+    let bytes = fs::read(path).unwrap();
+
+    let (state, _) = bincode::serde::decode_from_slice(
+        &bytes,
+        bincode::config::standard()
+    ).unwrap();
+
+    state
+}
 }
