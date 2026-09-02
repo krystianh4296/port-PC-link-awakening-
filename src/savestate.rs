@@ -134,7 +134,7 @@ pub struct ApuState {
 
     pub frame_sequencer_cycles: u32,
     pub frame_sequencer_step: u8,
-    pub sample_cycles: u32,
+    pub sample_cycles: u64,
 
     pub ch1: SquareChannelState,
     pub ch2: SquareChannelState,
