@@ -28,6 +28,9 @@ fn main() {
     let audio = Audio::new();
 
     let mut bus = Bus::new(&rom_path);
+
+    bus.load_game();
+    
     let mut cpu = Cpu::new();
     cpu.reset();
 
