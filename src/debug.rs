@@ -701,6 +701,8 @@ pub enum ConsoleCommand {
     History,
 
     Unknown(String),
+
+    CallStack,
 }
 
 impl ConsoleCommand {
@@ -825,7 +827,7 @@ impl ConsoleCommand {
             "BREAK" => Self::Break,
             "STATUS" => Self::Status,
             "SNAPSHOT" => Self::Snapshot,
-
+            "CALLSTACK" => Self::CallStack,
             "MEM" => {
                 if parts.len() != 3 {
                     return Self::Unknown(input.to_string());
@@ -992,6 +994,9 @@ impl Debugger {
             ConsoleCommand::Unknown(input) => {
                 println!("Unknown debugger command: {}", input);
                 println!("Type HELP for available commands.");
+            }
+            ConsoleCommand::CallStack => {
+                self.print_call_stack();
             }
         }
     }
