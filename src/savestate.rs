@@ -1,11 +1,60 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use crate::{bus::Bus, cpu::Cpu};
 
-use crate::cpu::Cpu;
+#[derive(Clone)]
+pub struct SaveState {
+    pub cpu: CpuState,
+    pub bus: BusState,
+}
 
-const SAVE_STATE_MAGIC: &[u8; 8] = b"GBSTATE1";
+#[derive(Clone)]
+pub struct CpuState {
+    pub a: u8,
+    pub f: u8,
+    pub b: u8,
+    pub c: u8,
+    pub d: u8,
+    pub e: u8,
+    pub h: u8,
+    pub l: u8,
 
-pub struct SaveState;
+    pub pc: u16,
+    pub sp: u16,
+
+    pub ime: bool,
+    pub halted: bool,
+}
+
+#[derive(Clone)]
+pub struct BusState {
+    pub vram: [u8; 0x2000],
+    pub wram: [u8; 0x2000],
+    pub eram: [u8; 0x2000],
+    pub oam: [u8; 0xA0],
+    pub hram: [u8; 0x7F],
+
+    pub io: [u8; 0x80],
+
+    pub ie: u8,
+    pub if_reg: u8,
+
+    pub lcdc: u8,
+    pub stat: u8,
+    pub ly: u8,
+    pub lyc: u8,
+    pub scx: u8,
+    pub scy: u8,
+
+    pub bgp: u8,
+    pub obp0: u8,
+    pub obp1: u8,
+
+    pub lcd_cycles: u32,
+    pub timer_cycles: u32,
+
+    pub current_rom_bank: u8,
+    pub current_ram_bank: u8,
+    pub ram_enabled: bool,
+}
 
 impl SaveState {
     pub fn path_from_rom(rom_path: &Path) -> PathBuf {
