@@ -464,6 +464,19 @@ impl Cpu {
     }
 
     pub fn step(&mut self, bus: &mut crate::bus::Bus) -> u32 {
+        if self.pc == 0x0100 {
+        println!(
+            ">>> BREAKPOINT PC=0100 A={:02X} F={:02X} BC={:04X} DE={:04X} HL={:04X} SP={:04X}",
+            self.a,
+            self.f,
+            self.bc(),
+            self.de(),
+            self.hl(),
+            self.sp
+        );
+
+        std::io::stdin().read_line(&mut String::new()).unwrap();
+    }
         let enable_ime = self.ime_pending;
         self.ime_pending = false;
 
