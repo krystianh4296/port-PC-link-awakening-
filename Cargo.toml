@@ -7,4 +7,4 @@ edition = "2024"
 minifb = "0.27"
 rodio = { version = "0.22", features = ["playback"] }
 serde = { version = "1", features = ["derive"] }
-bincode = "2"
+bincode = "1.3"

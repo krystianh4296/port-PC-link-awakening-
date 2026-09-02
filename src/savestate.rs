@@ -1,12 +1,15 @@
+use std::fs::{self, File};
+use std::io::Write;
+use serde::{Serialize, Deserialize};
 use crate::{bus::Bus, cpu::Cpu};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SaveState {
     pub cpu: CpuState,
     pub bus: BusState,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CpuState {
     pub a: u8,
     pub f: u8,
@@ -24,13 +27,13 @@ pub struct CpuState {
     pub halted: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BusState {
     pub vram: [u8; 0x2000],
     pub wram: [u8; 0x2000],
-    pub eram: [u8; 0x2000],
     pub oam: [u8; 0xA0],
     pub hram: [u8; 0x7F],
+    pub mbc1: Mbc1State,
 
     pub io: [u8; 0x80],
 
@@ -49,11 +52,33 @@ pub struct BusState {
     pub obp1: u8,
 
     pub lcd_cycles: u32,
-    pub timer_cycles: u32,
+    pub timer: TimerState,
+    
+    mbc1: Mbc1State {
+        rom_bank: bus.mbc1.rom_bank,
+        ram_bank: bus.mbc1.ram_bank,
+        ram_enabled: bus.mbc1.ram_enabled,
+        banking_mode: bus.mbc1.banking_mode,
+        ram: bus.mbc1.ram.clone(),
+    },
+}
 
-    pub current_rom_bank: u8,
-    pub current_ram_bank: u8,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Mbc1State {
+    pub rom_bank: u8,
+    pub ram_bank: u8,
     pub ram_enabled: bool,
+    pub banking_mode: u8,
+    pub ram: Vec<u8>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TimerState {
+    pub div: u16,
+    pub tima: u8,
+    pub tma: u8,
+    pub tac: u8,
+    pub counter: u32,
 }
 
 impl SaveState {
@@ -79,7 +104,6 @@ impl SaveState {
             bus: BusState {
                 vram: bus.vram,
                 wram: bus.wram,
-                eram: bus.eram,
                 oam: bus.oam,
                 hram: bus.hram,
                 io: bus.io,
@@ -99,11 +123,21 @@ impl SaveState {
                 obp1: bus.obp1,
 
                 lcd_cycles: bus.lcd_cycles,
-                timer_cycles: bus.timer_cycles,
 
-                current_rom_bank: bus.current_rom_bank,
-                current_ram_bank: bus.current_ram_bank,
-                ram_enabled: bus.ram_enabled,
+                mbc1: Mbc1State {
+                    rom_bank: bus.mbc1.rom_bank,
+                    ram_bank: bus.mbc1.ram_bank,
+                    ram_enabled: bus.mbc1.ram_enabled,
+                    banking_mode: bus.mbc1.banking_mode,
+                    ram: bus.mbc1.ram.clone(),
+                },
+                timer: TimerState {
+                    div: bus.timer.div,
+                    tima: bus.timer.tima,
+                    tma: bus.timer.tma,
+                    tac: bus.timer.tac,
+                    counter: bus.timer.counter,
+                },
             },
         }
     }
@@ -125,7 +159,6 @@ impl SaveState {
 
         bus.vram = self.bus.vram;
         bus.wram = self.bus.wram;
-        bus.eram = self.bus.eram;
         bus.oam = self.bus.oam;
         bus.hram = self.bus.hram;
         bus.io = self.bus.io;
@@ -145,12 +178,20 @@ impl SaveState {
         bus.obp1 = self.bus.obp1;
 
         bus.lcd_cycles = self.bus.lcd_cycles;
-        bus.timer_cycles = self.bus.timer_cycles;
+        
+        bus.timer.div = self.bus.timer.div;
+        bus.timer.tima = self.bus.timer.tima;
+        bus.timer.tma = self.bus.timer.tma;
+        bus.timer.tac = self.bus.timer.tac;
+        bus.timer.counter = self.bus.timer.counter;
 
-        bus.current_rom_bank = self.bus.current_rom_bank;
-        bus.current_ram_bank = self.bus.current_ram_bank;
-        bus.ram_enabled = self.bus.ram_enabled;
+        bus.mbc1.rom_bank = self.bus.mbc1.rom_bank;
+        bus.mbc1.ram_bank = self.bus.mbc1.ram_bank;
+        bus.mbc1.ram_enabled = self.bus.mbc1.ram_enabled;
+        bus.mbc1.banking_mode = self.bus.mbc1.banking_mode;
+        bus.mbc1.ram = self.bus.mbc1.ram.clone();
     }
+}
 pub fn save_to_file(state: &SaveState, path: &str) {
     let bytes = bincode::serde::encode_to_vec(
         state,
@@ -169,5 +210,4 @@ pub fn load_from_file(path: &str) -> SaveState {
     ).unwrap();
 
     state
-}
 }
