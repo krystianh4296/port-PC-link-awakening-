@@ -288,7 +288,7 @@ fn main() {
                         | (u16::from(bus.read(old_pc.wrapping_add(2))) << 8);
 
                     if cpu.pc == target && cpu.sp == old_sp.wrapping_sub(2) {
-                        debugger.call(old_pc.wrapping_add(3));
+                        debugger.call(old_pc, old_pc.wrapping_add(3));
                     }
                 }
 
@@ -298,7 +298,7 @@ fn main() {
                         | (u16::from(bus.read(old_pc.wrapping_add(2))) << 8);
 
                     if cpu.pc == target && cpu.sp == old_sp.wrapping_sub(2) {
-                        debugger.call(old_pc.wrapping_add(3));
+                        debugger.call(old_pc, old_pc.wrapping_add(3));
                     }
                 }
 
@@ -309,7 +309,7 @@ fn main() {
 
                 // RST
                 0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => {
-                    debugger.call(old_pc.wrapping_add(1));
+                    debugger.call(old_pc, old_pc.wrapping_add(1));
                 }
 
                 _ => {}

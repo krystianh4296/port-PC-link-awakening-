@@ -31,6 +31,12 @@ pub struct MemoryWatch {
 }
 
 #[derive(Clone, Debug)]
+pub struct CallStackEntry {
+    pub call_address: u16,
+    pub return_address: u16,
+}
+
+#[derive(Clone, Debug)]
 pub struct TraceEntry {
     pub address: u16,
     pub bytes: Vec<u8>,
@@ -65,7 +71,7 @@ pub struct Debugger {
     pub frame: u64,
     pub stop_reason: Option<String>,
     pub snapshot: Option<DebugSnapshot>,
-    pub call_stack: Vec<u16>,
+    pub call_stack: Vec<CallStackEntry>,
     pub call_stack_limit: usize,
 }
 
@@ -128,12 +134,15 @@ impl Debugger {
     pub fn has_breakpoint(&self, address: u16) -> bool {
         self.breakpoints.contains(&address)
     }
-    pub fn call(&mut self, return_address: u16) {
+    pub fn call(&mut self, call_address: u16, return_address: u16) {
         if self.call_stack.len() >= self.call_stack_limit {
             self.call_stack.remove(0);
         }
 
-        self.call_stack.push(return_address);
+        self.call_stack.push(CallStackEntry {
+            call_address,
+            return_address,
+        });
     }
 
     pub fn ret(&mut self) {
@@ -152,8 +161,11 @@ impl Debugger {
             return;
         }
 
-        for (i, address) in self.call_stack.iter().rev().enumerate() {
-            println!("#{} {:04X}", i, address);
+        for (i, entry) in self.call_stack.iter().rev().enumerate() {
+            println!(
+                "#{} CALL {:04X} -> return {:04X}",
+                i, entry.call_address, entry.return_address
+            );
         }
     }
 
