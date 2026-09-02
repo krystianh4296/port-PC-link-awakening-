@@ -1,4 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::{self, BufRead};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 
 use crate::{bus::Bus, cpu::Cpu};
 
@@ -403,8 +406,7 @@ fn jr_text(pc:u16,o:u8)->String {
 fn jr_cc(c:&str,pc:u16,o:u8)->String { 
     format!("JR {},${:04X}",c,pc.wrapping_add(2).wrapping_add((o as i8) as i16 as u16)) 
 }
-fn cb_mnemonic(op:u8)->String { 
-    let r=reg_name(op); 
+fn cb_mnemonic(op:u8)->String { let r=reg_name(op); 
     match op {
         0x00..=0x07=>format!("RLC {}",r),
         0x08..=0x0F=>format!("RRC {}",r),
@@ -414,9 +416,376 @@ fn cb_mnemonic(op:u8)->String {
         0x28..=0x2F=>format!("SRA {}",r),
         0x30..=0x37=>format!("SWAP {}",r),
         0x38..=0x3F=>format!("SRL {}",r),
-        0x40..=0x7F=>format!("BIT {},{}",
-        (op>>3)&7,r),
+        0x40..=0x7F=>format!("BIT {},{}",(op>>3)&7,r),
         0x80..=0xBF=>format!("RES {},{}",(op>>3)&7,r),
         _=>format!("SET {},{}",(op>>3)&7,r)
     }
+}
+pub struct DebugConsole {
+    receiver: Receiver<String>,
+}
 
+impl DebugConsole {
+    pub fn new() -> Self {
+        let (sender, receiver) = mpsc::channel::<String>();
+
+        thread::spawn(move || {
+            let stdin = io::stdin();
+            let mut stdin = stdin.lock();
+
+            loop {
+                let mut line = String::new();
+
+                match stdin.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let line = line.trim().to_string();
+
+                        if !line.is_empty() && sender.send(line).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        Self { 
+            receiver 
+        }
+    }
+
+    pub fn try_read(&self) -> Option<String> {
+        self.receiver.try_recv().ok()
+    }
+}
+
+#[derive(Debug)]
+pub enum ConsoleCommand {
+    Help,
+
+    Breakpoint(u16),
+    BreakpointList,
+    BreakpointDelete(u16),
+    BreakpointClear,
+
+    Watch(u16),
+    WatchList,
+    WatchDelete(u16),
+
+    Trace(u16, u16),
+    TraceOff,
+
+    Disassemble(u16, usize),
+
+    Step,
+    Continue,
+    Break,
+    Status,
+
+    Memory(u16, usize),
+    History,
+
+    Unknown(String),
+}
+
+impl ConsoleCommand {
+    pub fn parse(input: &str) -> Self {
+        let parts: Vec<&str> = input.split_whitespace().collect();
+
+        if parts.is_empty() {
+            return Self::Unknown(String::new());
+        }
+
+        let command = parts[0].to_ascii_uppercase();
+
+        match command.as_str() {
+            "HELP" => Self::Help,
+
+            "BP" => {
+                if parts.len() < 2 {
+                    return Self::Unknown(input.to_string());
+                }
+
+                match parts[1].to_ascii_uppercase().as_str() {
+                    "LIST" => Self::BreakpointList,
+                    "CLEAR" => Self::BreakpointClear,
+
+                    "DEL" => {
+                        if parts.len() != 3 {
+                            return Self::Unknown(input.to_string());
+                        }
+
+                        match parse_hex_u16(parts[2]) {
+                            Some(addr) => Self::BreakpointDelete(addr),
+                            None => Self::Unknown(input.to_string()),
+                        }
+                    }
+
+                    _ => match parse_hex_u16(parts[1]) {
+                        Some(addr) => Self::Breakpoint(addr),
+                        None => Self::Unknown(input.to_string()),
+                    },
+                }
+            }
+
+            "WATCH" => {
+                if parts.len() < 2 {
+                    return Self::Unknown(input.to_string());
+                }
+
+                match parts[1].to_ascii_uppercase().as_str() {
+                    "LIST" => Self::WatchList,
+
+                    "DEL" => {
+                        if parts.len() != 3 {
+                            return Self::Unknown(input.to_string());
+                        }
+
+                        match parse_hex_u16(parts[2]) {
+                            Some(addr) => Self::WatchDelete(addr),
+                            None => Self::Unknown(input.to_string()),
+                        }
+                    }
+
+                    _ => match parse_hex_u16(parts[1]) {
+                        Some(addr) => Self::Watch(addr),
+                        None => Self::Unknown(input.to_string()),
+                    },
+                }
+            }
+
+            "TRACE" => {
+                if parts.len() == 2
+                    && parts[1].eq_ignore_ascii_case("OFF")
+                {
+                    return Self::TraceOff;
+                }
+
+                if parts.len() != 3 {
+                    return Self::Unknown(input.to_string());
+                }
+
+                let start = parse_hex_u16(parts[1]);
+                let end = parse_hex_u16(parts[2]);
+
+                match (start, end) {
+                    (Some(start), Some(end)) => Self::Trace(start, end),
+                    _ => Self::Unknown(input.to_string()),
+                }
+            }
+
+            "DIS" => {
+                if parts.len() < 2 || parts.len() > 3 {
+                    return Self::Unknown(input.to_string());
+                }
+
+                let address = match parse_hex_u16(parts[1]) {
+                    Some(value) => value,
+                    None => return Self::Unknown(input.to_string()),
+                };
+
+                let count = if parts.len() == 3 {
+                    match parts[2].parse::<usize>() {
+                        Ok(value) => value,
+                        Err(_) => return Self::Unknown(input.to_string()),
+                    }
+                } else {
+                    1
+                };
+
+                Self::Disassemble(address, count)
+            }
+
+            "STEP" => Self::Step,
+            "CONT" => Self::Continue,
+            "BREAK" => Self::Break,
+            "STATUS" => Self::Status,
+
+            "MEM" => {
+                if parts.len() != 3 {
+                    return Self::Unknown(input.to_string());
+                }
+
+                let address = match parse_hex_u16(parts[1]) {
+                    Some(value) => value,
+                    None => return Self::Unknown(input.to_string()),
+                };
+
+                let length = match parts[2].parse::<usize>() {
+                    Ok(value) => value,
+                    Err(_) => return Self::Unknown(input.to_string()),
+                };
+
+                Self::Memory(address, length)
+            }
+
+            "HISTORY" => Self::History,
+
+            _ => Self::Unknown(input.to_string()),
+        }
+    }
+}
+
+fn parse_hex_u16(value: &str) -> Option<u16> {
+    let value = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .or_else(|| value.strip_prefix("$"))
+        .unwrap_or(value);
+
+    u16::from_str_radix(value, 16).ok()
+}
+
+impl Debugger {
+    pub fn execute_console_command(
+        &mut self,
+        command: ConsoleCommand,
+        cpu: &crate::cpu::Cpu,
+        bus: &crate::bus::Bus,
+    ) {
+        match command {
+            ConsoleCommand::Help => {
+                println!("=== DEBUGGER COMMANDS ===");
+                println!("HELP");
+                println!();
+                println!("BP <ADDR>       - dodaj breakpoint");
+                println!("BP LIST         - lista breakpointów");
+                println!("BP DEL <ADDR>   - usuń breakpoint");
+                println!("BP CLEAR        - usuń wszystkie breakpointy");
+                println!();
+                println!("WATCH <ADDR>    - obserwuj zmianę pamięci");
+                println!("WATCH LIST      - lista watchpointów");
+                println!("WATCH DEL <ADDR>- usuń watchpoint");
+                println!();
+                println!("TRACE <START> <END> - śledzenie instrukcji");
+                println!("TRACE OFF");
+                println!();
+                println!("DIS <ADDR> [N]  - disassembly");
+                println!("MEM <ADDR> <N>  - zrzut pamięci");
+                println!("HISTORY         - historia instrukcji");
+                println!();
+                println!("STEP            - wykonaj jedną instrukcję");
+                println!("CONT            - kontynuuj wykonywanie");
+                println!("BREAK           - zatrzymaj CPU");
+                println!("STATUS          - status CPU");
+                println!("=========================");
+            }
+
+            ConsoleCommand::Breakpoint(address) => {
+                self.add_breakpoint(address);
+
+                println!("Breakpoint added at PC={:04X}", address);
+            }
+
+            ConsoleCommand::BreakpointList => {
+                let breakpoints = self.list_breakpoints();
+
+                if breakpoints.is_empty() {
+                    println!("No breakpoints.");
+                } else {
+                    println!("Breakpoints:");
+
+                    for address in breakpoints {
+                        println!("  {:04X}", address);
+                    }
+                }
+            }
+
+            ConsoleCommand::BreakpointDelete(address) => {
+                if self.has_breakpoint(address) {
+                    self.remove_breakpoint(address);
+                    println!("Breakpoint removed: PC={:04X}", address);
+                } else {
+                    println!("No breakpoint at PC={:04X}", address);
+                }
+            }
+
+            ConsoleCommand::BreakpointClear => {
+                self.clear_breakpoints();
+                println!("All breakpoints cleared.");
+            }
+
+            ConsoleCommand::Watch(address) => {
+                self.watch(address, WatchType::Change);
+
+                println!("Watchpoint added: {:04X}", address);
+            }
+
+            ConsoleCommand::WatchList => {
+                let watches = self.list_watches();
+
+                if watches.is_empty() {
+                    println!("No watchpoints.");
+                } else {
+                    println!("Watchpoints:");
+
+                    for (address, watch_type) in watches {
+                        println!("  {:04X} {:?}", address, watch_type);
+                    }
+                }
+            }
+
+            ConsoleCommand::WatchDelete(address) => {
+                self.unwatch(address);
+                println!("Watchpoint removed: {:04X}", address);
+            }
+
+            ConsoleCommand::Trace(start, end) => {
+                self.set_trace_range(start, end);
+
+                println!(
+                    "Trace enabled: {:04X} -> {:04X}",
+                    start, end
+                );
+            }
+
+            ConsoleCommand::TraceOff => {
+                self.disable_trace();
+                println!("Trace disabled.");
+            }
+
+            ConsoleCommand::Disassemble(address, count) => {
+                self.print_disassembly(bus, address, count);
+            }
+
+            ConsoleCommand::Step => {
+                self.step();
+
+                println!("Debugger: STEP requested.");
+            }
+
+            ConsoleCommand::Continue => {
+                self.continue_execution();
+
+                println!("Debugger: CONT requested.");
+            }
+
+            ConsoleCommand::Break => {
+                self.break_now(format!(
+                    "Console break at PC={:04X}",
+                    cpu.pc
+                ));
+
+                self.print_status(cpu);
+            }
+
+            ConsoleCommand::Status => {
+                self.print_status(cpu);
+            }
+
+            ConsoleCommand::Memory(address, length) => {
+                self.dump_memory(bus, address, length);
+            }
+
+            ConsoleCommand::History => {
+                self.print_history();
+            }
+
+            ConsoleCommand::Unknown(input) => {
+                println!("Unknown debugger command: {}", input);
+                println!("Type HELP for available commands.");
+            }
+        }
+    }
+}
