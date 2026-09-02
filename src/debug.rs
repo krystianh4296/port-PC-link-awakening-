@@ -18,7 +18,18 @@ pub enum WatchType { Change, Read, Write }
 pub struct MemoryWatch { pub address: u16, pub kind: WatchType, pub last_value: u8 }
 
 #[derive(Clone, Debug)]
-pub struct TraceEntry { pub address: u16, pub bytes: Vec<u8>, pub text: String }
+pub struct TraceEntry {
+    pub address: u16,
+    pub bytes: Vec<u8>,
+    pub text: String,
+
+    pub a: u8,
+    pub f: u8,
+    pub bc: u16,
+    pub de: u16,
+    pub hl: u16,
+    pub sp: u16,
+}
 
 #[derive(Clone, Debug)]
 pub struct DisassembledInstruction { pub address: u16, pub bytes: Vec<u8>, pub text: String, pub length: u8 }
@@ -108,16 +119,25 @@ impl Debugger {
         }
     }
 
-    pub fn set_trace_range(&mut self,start:u16,end:u16) { 
-        self.trace_start=start; 
-        self.trace_end=end; 
-        self.trace_enabled=true; 
-        println!("DEBUG: trace {:04X}-{:04X}",start,end); 
+    pub fn set_trace_range(&mut self, start: u16, end: u16) {
+        self.trace_start = start;
+        self.trace_end = end;
+        self.trace_enabled = true;
+        println!("DEBUG: trace {:04X}-{:04X}", start, end);
     }
-    pub fn disable_trace(&mut self) { 
-        self.trace_enabled=false; 
-        println!("DEBUG: trace wyłączony"); 
+    pub fn set_trace_single(&mut self, address: u16) {
+        self.trace_start = address;
+        self.trace_end = address;
+        self.trace_enabled = true;
+
+        println!("DEBUG: trace PC={:04X}", address);
     }
+
+    pub fn disable_trace(&mut self) {
+        self.trace_enabled = false;
+        println!("DEBUG: trace wyłączony");
+    } 
+    
 
     pub fn watch(&mut self,bus:&mut Bus,address:u16) {
         let value=bus.read(address);
@@ -153,8 +173,11 @@ impl Debugger {
             self.stop_reason=Some(format!("Breakpoint hit at {:04X}",cpu.pc));
             self.print_status(cpu); self.print_stop_disassembly(bus,cpu.pc); return false;
         }
-        if self.trace_enabled && Self::in_trace_range(cpu.pc,self.trace_start,self.trace_end) { 
-            let i=disassemble_at(bus,cpu.pc); self.trace_instruction(&i); 
+        if self.trace_enabled
+            && Self::in_trace_range(cpu.pc, self.trace_start, self.trace_end)
+        {
+            let i = disassemble_at(bus, cpu.pc);
+            self.trace_instruction(&i, cpu);
         }
         self.check_change_watches(bus); true
     }
@@ -233,14 +256,47 @@ impl Debugger {
             println!("{:04X}: {:<11} {}",e.address,format_bytes(&e.bytes),e.text); 
         } 
     }
-    pub fn trace_instruction(&mut self,i:&DisassembledInstruction) { 
-        if self.history.len()>=self.history_limit { 
-            self.history.pop_front(); 
-        } 
-        let e=TraceEntry{address:i.address,bytes:i.bytes.clone(),text:i.text.clone()}; 
-        println!("{:04X}: {:<11} {}",e.address,format_bytes(&e.bytes),e.text); 
-        self.history.push_back(e); 
+
+    pub fn trace_instruction(
+    &mut self,
+    i: &DisassembledInstruction,
+    cpu: &Cpu,
+    ) {
+        println!(
+            "PC={:04X} OP={:02X}",
+            i.address,
+            i.bytes.first().copied().unwrap_or(0)
+        );
+
+        println!(
+            "A={:02X} F={:02X} BC={:04X} DE={:04X} HL={:04X} SP={:04X}",
+            cpu.a,
+            cpu.f,
+            cpu.bc(),
+            cpu.de(),
+            cpu.hl(),
+            cpu.sp
+        );
+
+        if self.history.len() >= self.history_limit {
+            self.history.pop_front();
+        }
+
+        let e = TraceEntry {
+            address: i.address,
+            bytes: i.bytes.clone(),
+            text: i.text.clone(),
+            a: cpu.a,
+            f: cpu.f,
+            bc: cpu.bc(),
+            de: cpu.de(),
+            hl: cpu.hl(),
+            sp: cpu.sp,
+        };
+
+        self.history.push_back(e);
     }
+
     fn in_trace_range(address:u16,start:u16,end:u16)->bool { 
         if start<=end { 
             address>=start&&address<=end 
@@ -250,6 +306,7 @@ impl Debugger {
         } 
     }
 }
+
 
 pub fn disassemble_at(bus:&mut Bus,address:u16)->DisassembledInstruction {
     let opcode=bus.read(address); let length=opcode_length(opcode); let mut bytes=Vec::with_capacity(length as usize);
@@ -491,6 +548,7 @@ pub enum ConsoleCommand {
     WatchDelete(u16),
 
     Trace(u16, u16),
+    TraceSingle(u16),
     TraceOff,
 
     Disassemble(u16, usize),
@@ -574,24 +632,35 @@ impl ConsoleCommand {
             }
 
             "TRACE" => {
-                if parts.len() == 2
-                    && parts[1].eq_ignore_ascii_case("OFF")
-                {
-                    return Self::TraceOff;
-                }
+    if parts.len() == 2
+        && parts[1].eq_ignore_ascii_case("OFF")
+    {
+        return Self::TraceOff;
+    }
 
-                if parts.len() != 3 {
-                    return Self::Unknown(input.to_string());
-                }
+    // TRACE <ADDR> — śledzenie jednej instrukcji/adresu
+    if parts.len() == 2 {
+        let address = parse_hex_u16(parts[1]);
 
-                let start = parse_hex_u16(parts[1]);
-                let end = parse_hex_u16(parts[2]);
+        return match address {
+            Some(address) => Self::TraceSingle(address),
+            None => Self::Unknown(input.to_string()),
+        };
+    }
 
-                match (start, end) {
-                    (Some(start), Some(end)) => Self::Trace(start, end),
-                    _ => Self::Unknown(input.to_string()),
-                }
-            }
+    // TRACE <START> <END> — śledzenie zakresu
+    if parts.len() == 3 {
+        let start = parse_hex_u16(parts[1]);
+        let end = parse_hex_u16(parts[2]);
+
+        return match (start, end) {
+            (Some(start), Some(end)) => Self::Trace(start, end),
+            _ => Self::Unknown(input.to_string()),
+        };
+    }
+
+    Self::Unknown(input.to_string())
+}
 
             "DIS" => {
                 if parts.len() < 2 || parts.len() > 3 {
@@ -735,6 +804,15 @@ impl Debugger {
                 println!(
                     "Trace enabled: {:04X} -> {:04X}",
                     start, end
+                );
+            }
+ 
+            ConsoleCommand::TraceSingle(address) => {
+                self.set_trace_single(address);
+
+                println!(
+                    "Trace enabled: PC={:04X}",
+                    address
                 );
             }
 
