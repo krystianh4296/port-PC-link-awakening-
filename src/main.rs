@@ -8,6 +8,7 @@ mod savestate;
 mod debug;
 
 use std::env;
+use std::time::{Duration, Instant};
 use bus::Bus;
 use cpu::Cpu;
 use debug::{ConsoleCommand, DebugConsole, Debugger};
@@ -77,6 +78,10 @@ fn main() {
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
     let mut tile_buffer = vec![0u32; TILE_DEBUG_WIDTH * TILE_DEBUG_HEIGHT];
     let mut steps: u64 = 0;
+
+    let frame_duration = Duration::from_secs_f64(1.0 / 60.0);
+    let mut next_frame_time = Instant::now() + frame_duration;
+
     let mut f1_key_lock = false;
     let mut f2_key_lock = false;
     let mut f3_key_lock = false;
@@ -246,9 +251,26 @@ fn main() {
         if frame_ready {
             debugger.next_frame(&mut bus);
 
+            let now = Instant::now();
+
+            if now < next_frame_time {
+                std::thread::sleep(next_frame_time - now);
+            }
+
             window
                 .update_with_buffer(&buffer, WIDTH, HEIGHT)
                 .expect("Błąd aktualizacji ekranu");
+
+            next_frame_time += frame_duration;
+
+            // Jeśli emulator został chwilowo zatrzymany/debugger
+            // i termin kolejnej klatki już minął, nie próbujemy
+            // nadrabiać setek opóźnionych klatek.
+            let now = Instant::now();
+
+            if next_frame_time < now {
+                next_frame_time = now + frame_duration;
+            }
         }
 
         if steps % 50_000 == 0 && steps != 0 {
