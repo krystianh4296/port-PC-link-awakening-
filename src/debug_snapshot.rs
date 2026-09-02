@@ -39,44 +39,7 @@ impl DebugSnapshot {
             debug_frames: bus.debug_frames,
         }
     }
-    pub fn compare_with(
-        &self,
-        cpu: &Cpu,
-        bus: &Bus,
-        options: DiffOptions,
-    ) -> Vec<String> {
-        let current = Self::capture(cpu, bus);
-        let mut differences = self.diff(&current);
-
-        if !options.show_opcode_counts {
-            differences.retain(|line| !line.starts_with("CPU.opcode_counts"));
-        }
-
-        if !options.show_debug_counters {
-            differences.retain(|line| !line.starts_with("Bus.debug_frames"));
-        }
-
-        differences = limit_memory_lines(
-            differences,
-            "Bus.vram[",
-            options.max_vram_lines,
-        );
-
-        differences = limit_memory_lines(
-            differences,
-            "Bus.wram[",
-            options.max_wram_lines,
-        );
-
-        differences = limit_memory_lines(
-            differences,
-            "Bus.oam[",
-            options.max_oam_lines,
-        );
-
-        differences
-    }
-
+    
     pub fn diff(&self, other: &Self) -> Vec<String> {
         let mut differences = Vec::new();
 
@@ -102,12 +65,7 @@ impl DebugSnapshot {
         differences
     }
 
-    pub fn is_identical(&self, other: &Self) -> bool {
-        self.diff(other).is_empty()
-    }
-}
-
-    fn limit_memory_lines(
+    pub fn limit_memory_lines(
         lines: Vec<String>,
         prefix: &str,
         max_lines: usize,
@@ -139,6 +97,67 @@ impl DebugSnapshot {
 
         result
     }
+
+    pub fn compare_with(
+        &self,
+        cpu: &Cpu,
+        bus: &Bus,
+        options: DiffOptions,
+    ) -> Vec<String> {
+        let current = Self::capture(cpu, bus);
+        let mut differences = self.diff(&current);
+
+        if !options.show_opcode_counts {
+            differences.retain(|line| !line.starts_with("CPU.opcode_counts"));
+        }
+
+        if !options.show_debug_counters {
+            differences.retain(|line| !line.starts_with("Bus.debug_frames"));
+        }
+
+        differences = Self::limit_memory_lines(
+            differences,
+            "Bus.vram[",
+            options.max_vram_lines,
+        );
+
+        differences = Self::limit_memory_lines(
+            differences,
+            "Bus.wram[",
+            options.max_wram_lines,
+        );
+
+        differences = Self::limit_memory_lines(
+            differences,
+            "Bus.oam[",
+            options.max_oam_lines,
+        );
+
+        differences
+    }
+
+    pub fn is_identical(&self, other: &Self) -> bool {
+        self.diff(other).is_empty()
+    }
+
+    pub fn print_diff(&self, cpu: &Cpu, bus: &Bus) {
+        let differences = self.compare_with(cpu, bus, DiffOptions::default());
+
+        if differences.is_empty() {
+            println!("DEBUG SNAPSHOT: stany są identyczne.");
+            return;
+        }
+
+        println!(
+            "DEBUG SNAPSHOT: wykryto {} różnic:",
+            differences.len()
+        );
+
+        for difference in differences {
+            println!("  {}", difference);
+        }
+    }
+}
 
 fn diff_cpu(a: &CpuState, b: &CpuState, out: &mut Vec<String>) {
     macro_rules! check {
