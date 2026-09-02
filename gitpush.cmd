@@ -40,7 +40,7 @@ echo.
 
 @REM if not exist "log" mkdir "log"
 
-@REM powershell -NoProfile -Command "$date = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'; cargo run --release *> ('log\log-' + $date + '.txt')"
+@REM powershell -NoProfile cargo run --release *> ('log\log-' + $date + '.txt')"
 
 @REM echo.
 @REM echo Emulator zakonczyl dzialanie.
