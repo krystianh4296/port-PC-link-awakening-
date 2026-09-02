@@ -191,18 +191,6 @@ impl Bus {
                     frame_ready = true;
 
                     self.debug_frames += 1;
-
-                    if self.debug_frames % 60 == 0 {
-                        println!(
-                            "PPU: FRAME={} LY={} MODE={} STAT={:02X} IF={:02X} IE={:02X}",
-                            self.debug_frames,
-                            self.ly,
-                            self.ppu_mode,
-                            self.stat,
-                            self.if_reg,
-                            self.ie
-                        );
-                    }
                 } else {
                     self.ppu_mode = 2;
                 }

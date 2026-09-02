@@ -566,47 +566,14 @@ fn execute_interrupt(
 
     let if_reg = bus.read(0xFF0F);
     let ie = bus.read(0xFFFF);
-
-    // println!(
-    //     "INTERRUPT: pending={:02X} IF={:02X} IE={:02X} bit={:02X} VECTOR={:04X} PC={:04X} SP={:04X}",
-    //     pending,
-    //     if_reg,
-    //     ie,
-    //     interrupt_bit,
-    //     vector,
-    //     self.pc,
-    //     self.sp,
-    // );
-
     self.ime = false;
     self.halted = false;
 
     let new_if = if_reg & !interrupt_bit;
-
-    // println!(
-    //     "INTERRUPT IF CLEAR: {:02X} -> {:02X}",
-    //     if_reg,
-    //     new_if
-    // );
-
     bus.write(0xFF0F, new_if);
 
     self.push(bus, self.pc);
-
-    // println!(
-    //     "INTERRUPT STACK: pushed PC={:04X}, new SP={:04X}",
-    //     self.pc,
-    //     self.sp
-    // );
-
     self.pc = vector;
-
-    // println!(
-    //     "INTERRUPT ENTER: PC={:04X} SP={:04X}",
-        // self.pc,
-        // self.sp
-    // );
-
     20
 }
 
@@ -654,36 +621,6 @@ pub fn step(
 
 fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
     let opcode = bus.read(self.pc);
-
-     if self.pc == 0x0000
-        || self.pc == 0x0008
-        || self.pc == 0x0010
-        || self.pc == 0x0018
-        || self.pc == 0x0020
-        || self.pc == 0x0028
-        || self.pc == 0x0030
-        || self.pc == 0x0038
-        || self.pc == 0x0040
-        || self.pc == 0x0048
-        || self.pc == 0x0050
-        || self.pc == 0x0058
-        || self.pc == 0x0060
-    {
-        println!(
-            "VECTOR PC={:04X} OP={:02X} A={:02X} F={:02X} BC={:04X} DE={:04X} HL={:04X} SP={:04X} IF={:02X} IE={:02X}",
-            self.pc,
-            opcode,
-            self.a,
-            self.f,
-            self.bc(),
-            self.de(),
-            self.hl(),
-            self.sp,
-            bus.read(0xFF0F),
-            bus.read(0xFFFF),
-        );
-    }
-    
     self.pc = self.pc.wrapping_add(1);
 
     self.opcode_counts[opcode as usize] += 1;
@@ -1256,25 +1193,9 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
     let target = u16::from_le_bytes([lo, hi]);
     let return_addr = self.pc.wrapping_add(2);
 
-    // println!(
-    //     ">>> CALL BEFORE: PC={:04X} TARGET={:04X} RETURN={:04X} SP={:04X}",
-    //     self.pc,
-    //     target,
-    //     return_addr,
-    //     self.sp
-    // );
-
     self.push(bus, return_addr);
 
     self.pc = target; 
-
-    // println!(
-    //     ">>> CALL AFTER: PC={:04X} SP={:04X} STACK={:02X} {:02X}",
-    //     self.pc,
-    //     self.sp,
-    //     bus.read(self.sp),
-    //     bus.read(self.sp.wrapping_add(1))
-    // );
 
     24
 }
@@ -1305,11 +1226,6 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
 
                 self.pc = return_address;
                 self.ime = true;
-                // println!(
-                //     "RETI -> PC={:04X} SP={:04X}",
-                //     return_address,
-                //     self.sp,
-                // );
 
                 16
             }
@@ -1317,17 +1233,13 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             // PUSH
             0xC5 => {
                 let value = self.bc();
-                // println!("PUSH BC: {:04X}, SP={:04X}", value, self.sp);
                 self.push(bus, value);
-                // println!("PUSH BC DONE: SP={:04X}", self.sp);
                 16
             }
 
             0xD5 => {
                 let value = self.de();
-                // println!("PUSH DE: {:04X}, SP={:04X}", value, self.sp);
                 self.push(bus, value);
-                // println!("PUSH DE DONE: SP={:04X}", self.sp);
                 16
             }
 
@@ -1338,25 +1250,19 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
 
             0xF5 => {
                 let value = self.af();
-                // println!("PUSH AF: {:04X}, SP={:04X}", value, self.sp);
                 self.push(bus, value);
-                // println!("PUSH AF DONE: SP={:04X}", self.sp);
                 16
             }
 
             // POP
             0xC1 => {
-                // println!("POP BC: SP={:04X}", self.sp);
                 let value = self.pop(bus);
-                // println!("POP BC VALUE: {:04X}, SP={:04X}", value, self.sp);
                 self.set_bc(value);
                 12
             }
 
             0xD1 => {
-                // println!("POP DE: SP={:04X}", self.sp);
                 let value = self.pop(bus);
-                //  println!("POP DE VALUE: {:04X}, SP={:04X}", value, self.sp);
                 self.set_de(value);
                 12
             }
@@ -1474,13 +1380,6 @@ fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
             0xFA => {
     let address = self.read_imm16(bus);
     let value = bus.read(address);
-
-    // println!(
-    //     "LD A,(a16): PC={:04X} ADDR={:04X} VALUE={:02X}",
-    //     self.pc - 3,
-    //     address,
-    //     value
-    // );
 
     self.a = value;
 

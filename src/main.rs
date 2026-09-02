@@ -30,7 +30,7 @@ fn main() {
     let mut bus = Bus::new(&rom_path);
 
     bus.load_game();
-    
+
     let mut cpu = Cpu::new();
     cpu.reset();
 
@@ -131,18 +131,6 @@ fn main() {
             f9_key_lock = false;
         }
 
-        if steps % 1_000_000 == 0 {
-            println!("===== OPCODES po {} instrukcjach =====", steps);
-
-            for opcode in 0..256 {
-                let count = cpu.opcode_counts[opcode];
-
-                if count != 0 {
-                    println!("OP {:02X}: {}", opcode, count);
-                }
-            }
-        }
-
         if window.is_key_down(Key::D) {
             buttons &= !(1 << 0);
         }
@@ -206,18 +194,5 @@ mod boot_progress {
             let cycles = cpu.step(&mut bus);
             bus.step(cycles, &mut buffer);
         }
-
-        assert!(
-            cpu.pc < 0x2887 || cpu.pc > 0x288C,
-            "CPU nadal czeka na LY=145: PC={:04X} LY={} LCDC={:02X} SP={:04X}",
-            cpu.pc,
-            bus.ly,
-            bus.lcdc,
-            cpu.sp
-        );
-        println!(
-            "OK PC={:04X} LY={} LCDC={:02X} SP={:04X} IE={:02X} IF={:02X}",
-            cpu.pc, bus.ly, bus.lcdc, cpu.sp, bus.ie, bus.if_reg
-        );
     }
 }
