@@ -161,13 +161,6 @@ impl Apu {
         if let Some(audio) = &self.audio {
             audio.push_stereo(left, right);
         }
-
-        if self.sample_counter % 48000 == 0 {
-    println!(
-        "APU SAMPLES: {}",
-        self.sample_counter
-    );
-}
     }
 
     pub fn read(&self, address: u16) -> u8 {
@@ -780,16 +773,6 @@ impl WaveChannel {
             Self::frequency_period(self.frequency());
 
         self.position = 0;
-        //         println!(
-//     "APU CH3 TRIGGER: NR30={:02X} NR31={:02X} NR32={:02X} NR33={:02X} NR34={:02X} FREQ={} LEN={}",
-//     self.nr30,
-//     self.nr31,
-//     self.nr32,
-//     self.nr33,
-//     self.nr34,
-//     self.frequency(),
-//     self.length_counter,
-// );
     }
     
     fn step(&mut self, cycles: u32) {
@@ -936,15 +919,6 @@ impl NoiseChannel {
         if self.nr42 & 0xF8 == 0 {
             self.enabled = false;
         }
-//         println!(
-//     "APU CH4 TRIGGER: NR41={:02X} NR42={:02X} NR43={:02X} NR44={:02X} LEN={} ENV={}",
-//     self.nr41,
-//     self.nr42,
-//     self.nr43,
-//     self.nr44,
-//     self.length_counter,
-//     self.envelope_volume,
-// );
     }
 
     fn frequency_period(&self) -> u16 {
