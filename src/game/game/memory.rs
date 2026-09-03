@@ -60,7 +60,7 @@ impl GameMemory {
             0xC000..=0xDFFF => self.wram[(address - 0xC000) as usize] = value,
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize] = value,
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize] = value,
-            0xFEA0..=0xFEFF => {}
+            0xFEA0..=0xFEFF => {},
             0xFF00..=0xFF7F => self.io[(address - 0xFF00) as usize] = value,
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize] = value,
             0xFFFF => self.ie = value,
