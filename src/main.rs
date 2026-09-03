@@ -104,9 +104,13 @@ let mut memory_watch: Option<MemoryWatch> = None;    let mut buffer = vec![0u32;
     let mut f12_key_lock = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        if memory_watch.window.is_open() {
-            memory_watch.update(&bus);
-        }
+        if let Some(watch) = memory_watch.as_mut() {
+    if watch.window.is_open() {
+        watch.update(&bus);
+    } else {
+        memory_watch = None;
+    }
+}
         while let Some(command) = debug_console.try_read() {
             let command = ConsoleCommand::parse(&command);
 
@@ -190,7 +194,10 @@ let mut memory_watch: Option<MemoryWatch> = None;    let mut buffer = vec![0u32;
         }
 
         if f7_down && !f7_key_lock {
-            if memory_watch.is_none() {
+            if memory_watch.is_some() {
+                memory_watch = None;
+                println!("DEBUG: Memory Watch zamknięty");
+            } else {
                 memory_watch = Some(MemoryWatch::new());
                 println!("DEBUG: Memory Watch otwarty");
             }
