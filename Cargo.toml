@@ -3,6 +3,10 @@ name = "gameboy-port"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "gameboy_port"
+path = "src/game/lib.rs"
+
 [[bin]]
 name = "debug"
 path = "src/debug/main.rs"
