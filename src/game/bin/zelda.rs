@@ -1,7 +1,9 @@
 use gameboy_port::game::game::Game;
 use gameboy_port::input::Input;
 use gameboy_port::rendering::renderer::Renderer;
+use gameboy_port::rom::Rom;
 
+use std::env;
 use std::time::{Duration, Instant};
 
 const TARGET_FPS: u32 = 60;
@@ -9,6 +11,50 @@ const FRAME_TIME: Duration =
     Duration::from_nanos(1_000_000_000 / TARGET_FPS as u64);
 
 fn main() {
+    let rom_path = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc".to_string());
+
+    println!("Ładowanie ROM:");
+    println!("  Ścieżka: {}", rom_path);
+
+    match std::fs::metadata(rom_path) {
+        Ok(metadata) => {
+            println!("  Rozmiar pliku: {} bytes", metadata.len());
+        }
+        Err(error) => {
+            eprintln!("  Nie można sprawdzić pliku: {error}");
+        }
+    }
+
+    let rom = match Rom::load(rom_path) {
+        Ok(rom) => rom,
+        Err(error) => {
+            eprintln!("Błąd ROM: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("ROM załadowany poprawnie.");
+    println!("  Rozmiar:      {} bytes", rom.len());
+    println!("  Banki ROM:    {}", rom.bank_count());
+    println!("  Tytuł:        {}", rom.header().title);
+    println!(
+        "  Cartridge:    {:02X}",
+        rom.header().cartridge_type
+    );
+    println!(
+        "  ROM size:     {:02X}",
+        rom.header().rom_size_code
+    );
+    println!(
+        "  RAM size:     {:02X}",
+        rom.header().ram_size_code
+    );
+
+    println!();
+    println!("Uruchamianie natywnej wersji gry...");
+
     let mut game = Game::new();
     let mut input = Input::new();
     let mut renderer = Renderer::new();
