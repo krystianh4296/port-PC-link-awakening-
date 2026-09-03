@@ -40,7 +40,7 @@ fn main() {
 
     let mut debugger = Debugger::new();
     debugger.enable();
-    debugger.add_breakpoint(0x0100);
+    debugger.add_breakpoint(0x0150);
     println!("ROM wczytany poprawnie.");
     println!("Rozmiar: {} bajtów", bus.rom.size());
     println!("Tytuł: {}", bus.rom.title());
