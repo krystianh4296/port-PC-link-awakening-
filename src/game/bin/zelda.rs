@@ -27,7 +27,7 @@ fn main() {
         }
     }
 
-    let rom = match Rom::load(rom_path) {
+    match std::fs::metadata(&rom_path) {
         Ok(rom) => rom,
         Err(error) => {
             eprintln!("Błąd ROM: {error}");
