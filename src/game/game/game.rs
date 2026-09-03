@@ -11,10 +11,7 @@ impl Game {
         }
     }
 
-    pub fn update(&mut self, input: &Input) {
-        if input.escape_pressed() {
-            self.running = false;
-        }
+    pub fn update(&mut self, _input: &Input, _delta_time: f32) {
     }
 
     pub fn is_running(&self) -> bool {

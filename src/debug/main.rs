@@ -31,7 +31,7 @@ const TILE_DEBUG_HEIGHT: usize = 192;
 
 fn main() {
     let rom_path = env::args().nth(1).unwrap_or_else(|| {
-        "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb".to_string()
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc".to_string()
     });
     let audio = Audio::new();
 
