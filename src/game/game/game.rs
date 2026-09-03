@@ -1,10 +1,11 @@
+use crate::game::{Cpu, GameMemory};
 use crate::input::Input;
-use crate::rom::{Cartridge, Rom};
-
-use super::memory::GameMemory;
+use crate::rom::Rom;
+use crate::rom::Cartridge;
 
 pub struct Game {
     running: bool,
+    cpu: Cpu,
     memory: GameMemory,
 }
 
@@ -12,13 +13,24 @@ impl Game {
     pub fn new(rom: Rom) -> Self {
         Self {
             running: true,
+            cpu: Cpu::new(),
             memory: GameMemory::new(Cartridge::new(rom)),
         }
     }
 
-    pub fn update(&mut self, _input: &Input, _delta_time: f32) {
+    pub fn update(
+        &mut self,
+        _input: &Input,
+        _delta_time: f32,
+    ) {
+        // około jedna instrukcja CPU na wywołanie.
+        self.cpu.step(&mut self.memory);
+        println!(
+            "PC={:04X} OP={:02X}",
+            self.cpu.pc,
+            self.memory.read(self.cpu.pc)
+        );
     }
-
     pub fn is_running(&self) -> bool {
         self.running
     }
