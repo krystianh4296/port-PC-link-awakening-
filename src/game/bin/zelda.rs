@@ -13,12 +13,13 @@ const FRAME_TIME: Duration =
 fn main() {
     let rom_path = env::args()
         .nth(1)
-        .unwrap_or_else(|| "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc".to_string());
+        .unwrap_or_else(|| {
+            "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc".to_string()
+        });
 
-    println!("Ładowanie ROM:");
-    println!("  Ścieżka: {}", rom_path);
+    println!("Ładowanie ROM: {}", rom_path);
 
-    match std::fs::metadata(rom_path) {
+    match std::fs::metadata(&rom_path) {
         Ok(metadata) => {
             println!("  Rozmiar pliku: {} bytes", metadata.len());
         }
@@ -27,7 +28,7 @@ fn main() {
         }
     }
 
-    match std::fs::metadata(&rom_path) {
+    let rom = match Rom::load(&rom_path) {
         Ok(rom) => rom,
         Err(error) => {
             eprintln!("Błąd ROM: {error}");
