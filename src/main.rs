@@ -39,8 +39,8 @@ fn main() {
     bus.set_audio(audio);
 
     let mut debugger = Debugger::new();
-    debugger.enable();
-    debugger.add_breakpoint(0x2881);
+    // debugger.enable();
+    // debugger.add_breakpoint(0x2881);
     println!("ROM wczytany poprawnie.");
     println!("Rozmiar: {} bajtów", bus.rom.size());
     println!("Tytuł: {}", bus.rom.title());
