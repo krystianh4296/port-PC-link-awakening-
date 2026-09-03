@@ -99,6 +99,41 @@ impl Debugger {
 
         println!("DEBUG SNAPSHOT: zapisano stan bazowy.");
     }
+    pub fn compare_snapshot(&self, cpu: &Cpu, bus: &Bus) {
+    let Some(snapshot) = &self.snapshot else {
+        println!("DEBUG SNAPSHOT: brak snapshotu bazowego.");
+        println!("Najpierw wykonaj: SNAPSHOT");
+        return;
+    };
+
+    let differences = snapshot.compare_with(
+        cpu,
+        bus,
+        DiffOptions {
+            max_vram_lines: 0,
+            max_wram_lines: usize::MAX,
+            max_oam_lines: 0,
+            show_opcode_counts: false,
+            show_debug_counters: false,
+        },
+    );
+
+    println!("=== DEBUG SNAPSHOT COMPARE ===");
+
+    if differences.is_empty() {
+        println!("Brak zmian.");
+        println!("=== END SNAPSHOT COMPARE ===");
+        return;
+    }
+
+    println!("Znaleziono {} zmian:", differences.len());
+
+    for difference in differences {
+        println!("  {}", format_snapshot_difference(&difference));
+    }
+
+    println!("=== END SNAPSHOT COMPARE ===");
+}
     pub fn enable(&mut self) {
         self.enabled = true;
     }
@@ -259,9 +294,14 @@ impl Debugger {
             self.print_stop_disassembly(bus, cpu.pc);
             return false;
         }
-        if self.trace_enabled && Self::in_trace_range(cpu.pc, self.trace_start, self.trace_end) {
-            let i = disassemble_at(bus, cpu.pc);
-            self.trace_instruction(&i, cpu);
+        let instruction = disassemble_at(bus, cpu.pc);
+
+        if self.trace_enabled
+            && Self::in_trace_range(cpu.pc, self.trace_start, self.trace_end)
+        {
+            self.trace_instruction(&instruction, cpu);
+        } else {
+            self.record_history(&instruction, cpu);
         }
         self.check_change_watches(bus);
         true
@@ -282,6 +322,24 @@ impl Debugger {
             self.print_stop_disassembly(bus, cpu.pc);
         }
     }
+
+    fn record_history(&mut self, i: &DisassembledInstruction, cpu: &Cpu) {
+    if self.history.len() >= self.history_limit {
+        self.history.pop_front();
+    }
+
+    self.history.push_back(TraceEntry {
+        address: i.address,
+        bytes: i.bytes.clone(),
+        text: i.text.clone(),
+        a: cpu.a,
+        f: cpu.f,
+        bc: cpu.bc(),
+        de: cpu.de(),
+        hl: cpu.hl(),
+        sp: cpu.sp,
+    });
+}
 
     fn check_change_watches(&mut self, bus: &mut Bus) {
         for w in self.watches.values_mut() {
@@ -380,23 +438,7 @@ impl Debugger {
             cpu.sp
         );
 
-        if self.history.len() >= self.history_limit {
-            self.history.pop_front();
-        }
-
-        let e = TraceEntry {
-            address: i.address,
-            bytes: i.bytes.clone(),
-            text: i.text.clone(),
-            a: cpu.a,
-            f: cpu.f,
-            bc: cpu.bc(),
-            de: cpu.de(),
-            hl: cpu.hl(),
-            sp: cpu.sp,
-        };
-
-        self.history.push_back(e);
+        self.record_history(i, cpu);
     }
 
     fn in_trace_range(address: u16, start: u16, end: u16) -> bool {
@@ -407,7 +449,9 @@ impl Debugger {
         }
     }
 }
-
+fn format_snapshot_difference(difference: &str) -> String {
+    difference.replace(" != ", " -> ")
+}
 pub fn disassemble_at(bus: &mut Bus, address: u16) -> DisassembledInstruction {
     let opcode = bus.read(address);
     let length = opcode_length(opcode);
@@ -708,6 +752,7 @@ pub enum ConsoleCommand {
     Break,
     Status,
     Snapshot,
+    SnapshotCompare,    
 
     Memory(u16, usize),
     History,
@@ -838,7 +883,15 @@ impl ConsoleCommand {
             "CONT" => Self::Continue,
             "BREAK" => Self::Break,
             "STATUS" => Self::Status,
-            "SNAPSHOT" => Self::Snapshot,
+            "SNAPSHOT" => {
+                if parts.len() == 1 {
+                    Self::Snapshot
+                } else if parts.len() == 2 && parts[1].eq_ignore_ascii_case("COMPARE") {
+                    Self::SnapshotCompare
+                } else {
+                    Self::Unknown(input.to_string())
+                }
+}
             "CALLSTACK" => Self::CallStack,
             "MEM" => {
                 if parts.len() != 3 {
@@ -993,6 +1046,10 @@ impl Debugger {
 
             ConsoleCommand::Snapshot => {
                 self.capture_snapshot(cpu, bus);
+            }
+
+            ConsoleCommand::SnapshotCompare => {
+                self.compare_snapshot(cpu, bus);
             }
 
             ConsoleCommand::Memory(address, length) => {

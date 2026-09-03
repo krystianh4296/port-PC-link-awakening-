@@ -40,7 +40,7 @@ echo.
 
 if not exist "log" mkdir "log"
 
-powershell -NoProfile cargo run --release
+powershell -NoProfile cargo run --bin gameboy-port --release
 
 echo.
 echo Emulator zakonczyl dzialanie.

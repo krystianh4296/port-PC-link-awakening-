@@ -8,6 +8,9 @@ mod rom;
 mod save;
 mod savestate;
 mod memory_watch;
+mod game;
+mod rendering;
+mod input;
 
 use audio::Audio;
 use bus::Bus;
