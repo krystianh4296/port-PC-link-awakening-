@@ -1,16 +1,18 @@
 use crate::input::Input;
 use crate::rom::{Cartridge, Rom};
 
+use super::memory::GameMemory;
+
 pub struct Game {
     running: bool,
-    cartridge: Cartridge,
+    memory: GameMemory,
 }
 
 impl Game {
     pub fn new(rom: Rom) -> Self {
         Self {
             running: true,
-            cartridge: Cartridge::new(rom),
+            memory: GameMemory::new(Cartridge::new(rom)),
         }
     }
 
@@ -21,32 +23,48 @@ impl Game {
         self.running
     }
 
+    pub fn memory(&self) -> &GameMemory {
+        &self.memory
+    }
+
+    pub fn memory_mut(&mut self) -> &mut GameMemory {
+        &mut self.memory
+    }
+
     pub fn cartridge(&self) -> &Cartridge {
-        &self.cartridge
+        self.memory.cartridge()
     }
 
     pub fn cartridge_mut(&mut self) -> &mut Cartridge {
-        &mut self.cartridge
+        self.memory.cartridge_mut()
     }
 
     pub fn rom(&self) -> &Rom {
-        self.cartridge.rom()
+        self.memory.cartridge().rom()
     }
 
     pub fn rom_bank(&self) -> u16 {
-        self.cartridge.rom_bank()
+        self.memory.cartridge().rom_bank()
     }
 
-    pub fn read_rom(&self, address: u16) -> u8 {
-        self.cartridge.read(address)
+    pub fn read(&self, address: u16) -> u8 {
+        self.memory.read(address)
     }
 
-    pub fn write_cartridge(&mut self, address: u16, value: u8) {
-        self.cartridge.write(address, value);
+    pub fn write(&mut self, address: u16, value: u8) {
+        self.memory.write(address, value);
+    }
+
+    pub fn read_word(&self, address: u16) -> u16 {
+        self.memory.read_word(address)
+    }
+
+    pub fn write_word(&mut self, address: u16, value: u16) {
+        self.memory.write_word(address, value);
     }
 
     pub fn select_rom_bank(&mut self, bank: u16) {
-        self.cartridge.write(0x2000, bank as u8);
-        self.cartridge.write(0x3000, (bank >> 8) as u8);
+        self.memory.write(0x2000, bank as u8);
+        self.memory.write(0x3000, (bank >> 8) as u8);
     }
 }
