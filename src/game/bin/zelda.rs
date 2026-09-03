@@ -53,10 +53,22 @@ fn main() {
         rom.header().ram_size_code
     );
 
+    let mut game = Game::new(rom);
+
+    println!();
+    println!("Test mapowania ROM/MBC5:");
+    println!("  Bank początkowy: {}", game.rom_bank());
+    println!("  [0000] = {:02X}", game.read_rom(0x0000));
+    println!("  [4000] = {:02X}", game.read_rom(0x4000));
+
+    game.select_rom_bank(2);
+    println!("  Po wyborze banku 2:");
+    println!("  Bank aktywny:    {}", game.rom_bank());
+    println!("  [4000] = {:02X}", game.read_rom(0x4000));
+
     println!();
     println!("Uruchamianie natywnej wersji gry...");
 
-    let mut game = Game::new();
     let mut input = Input::new();
     let mut renderer = Renderer::new();
 
