@@ -7,6 +7,7 @@ mod debug_snapshot;
 mod rom;
 mod save;
 mod savestate;
+mod memory_watch;
 
 use audio::Audio;
 use bus::Bus;
@@ -17,6 +18,7 @@ use minifb::{Key, Window, WindowOptions};
 use savestate::{SaveState, load_from_file, save_to_file};
 use std::env;
 use std::time::{Duration, Instant};
+use memory_watch::MemoryWatch;
 
 const WIDTH: usize = 160;
 const HEIGHT: usize = 144;
@@ -78,9 +80,10 @@ fn main() {
             ..WindowOptions::default()
         },
     )
+    
     .expect("Nie udało się utworzyć okna VRAM");
 
-    let mut buffer = vec![0u32; WIDTH * HEIGHT];
+let mut memory_watch: Option<MemoryWatch> = None;    let mut buffer = vec![0u32; WIDTH * HEIGHT];
     let mut tile_buffer = vec![0u32; TILE_DEBUG_WIDTH * TILE_DEBUG_HEIGHT];
     let mut steps: u64 = 0;
 
@@ -93,6 +96,7 @@ fn main() {
     let mut f4_key_lock = false;
     let mut f5_key_lock = false;
     let mut f6_key_lock = false;
+    let mut f7_key_lock = false;
     let mut f8_key_lock = false;
     let mut f9_key_lock = false;
     let mut f10_key_lock = false;
@@ -100,6 +104,9 @@ fn main() {
     let mut f12_key_lock = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        if memory_watch.window.is_open() {
+            memory_watch.update(&bus);
+        }
         while let Some(command) = debug_console.try_read() {
             let command = ConsoleCommand::parse(&command);
 
@@ -114,6 +121,7 @@ fn main() {
         let f4_down = window.is_key_down(Key::F4);
         let f5_down = window.is_key_down(Key::F5);
         let f6_down = window.is_key_down(Key::F6);
+        let f7_down = window.is_key_down(Key::F7);
         let f8_down = window.is_key_down(Key::F8);
         let f9_down = window.is_key_down(Key::F9);
         let f10_down = window.is_key_down(Key::F10);
@@ -179,6 +187,19 @@ fn main() {
         }
         if !f6_down {
             f6_key_lock = false;
+        }
+
+        if f7_down && !f7_key_lock {
+            if memory_watch.is_none() {
+                memory_watch = Some(MemoryWatch::new());
+                println!("DEBUG: Memory Watch otwarty");
+            }
+
+            f7_key_lock = true;
+        }
+
+        if !f7_down {
+            f7_key_lock = false;
         }
 
         if f8_down && !f8_key_lock {

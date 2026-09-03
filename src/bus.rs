@@ -341,6 +341,85 @@ impl Bus {
         }
     }
 
+    pub fn read_debug(&self, address: u16) -> u8 {
+        match address {
+            // ROM
+            0x0000..=0x7FFF => {
+                self.mbc1.read(&self.rom, address)
+            }
+
+            // VRAM
+            0x8000..=0x9FFF => {
+                self.vram[(address - 0x8000) as usize]
+            }
+
+            // Cartridge RAM
+            0xA000..=0xBFFF => {
+                self.mbc1.read_ram(address)
+            }
+
+            // WRAM
+            0xC000..=0xDFFF => {
+                self.wram[(address - 0xC000) as usize]
+            }
+
+            // Echo RAM
+            0xE000..=0xFDFF => {
+                self.wram[(address - 0xE000) as usize]
+            }
+
+            // OAM
+            0xFE00..=0xFE9F => {
+                self.oam[(address - 0xFE00) as usize]
+            }
+
+            // Unusable
+            0xFEA0..=0xFEFF => 0xFF,
+
+            // I/O
+            0xFF00..=0xFF7F => {
+                match address {
+                    0xFF00 => self.joyp_value(),
+
+                    0xFF04 => self.div,
+                    0xFF05 => self.tima,
+                    0xFF06 => self.tma,
+                    0xFF07 => self.tac | 0xF8,
+                    0xFF0F => self.if_reg | 0xE0,
+
+                    0xFF10..=0xFF3F => {
+                        self.apu.read(address)
+                    }
+
+                    0xFF40 => self.lcdc,
+                    0xFF41 => self.stat | 0x80,
+                    0xFF42 => self.scy,
+                    0xFF43 => self.scx,
+                    0xFF44 => self.ly,
+                    0xFF45 => self.lyc,
+                    0xFF46 => self.dma,
+                    0xFF47 => self.bgp,
+                    0xFF48 => self.obp0,
+                    0xFF49 => self.obp1,
+                    0xFF4A => self.wy,
+                    0xFF4B => self.wx,
+
+                    _ => self.io[(address - 0xFF00) as usize],
+                }
+            }
+
+            // HRAM
+            0xFF80..=0xFFFE => {
+                self.hram[(address - 0xFF80) as usize]
+            }
+
+            // IE
+            0xFFFF => self.ie,
+
+            _ => 0xFF,
+        }
+    }
+
     pub fn write(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x1FFF => self.mbc1.write_ram_enable(value),

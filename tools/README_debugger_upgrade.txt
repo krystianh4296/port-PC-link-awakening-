@@ -1,1 +1,0 @@
-Planned debugger extensions: TRACE ON/OFF/single-PC tracing with register snapshots; CALL STACK based on CPU CALL/RET execution tracking. Implementation should preserve existing debugger and tests.
