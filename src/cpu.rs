@@ -464,34 +464,6 @@ impl Cpu {
     }
 
     pub fn step(&mut self, bus: &mut crate::bus::Bus) -> u32 {
-        if self.pc == 0x0100 {
-        println!(
-            ">>> BREAKPOINT PC=0100 A={:02X} F={:02X} BC={:04X} DE={:04X} HL={:04X} SP={:04X}",
-            self.a,
-            self.f,
-            self.bc(),
-            self.de(),
-            self.hl(),
-            self.sp
-        );
-        if self.pc < 0x0200 {
-    println!(
-        "TRACE PC={:04X} A={:02X} F={:02X} BC={:04X} DE={:04X} HL={:04X} SP={:04X}",
-        self.pc,
-        self.a,
-        self.f,
-        self.bc(),
-        self.de(),
-        self.hl(),
-        self.sp
-    );
-}
-        let opcode = bus.read(self.pc);
-
-println!(">>> OPCODE @0100 = {:02X}", opcode);
-
-        std::io::stdin().read_line(&mut String::new()).unwrap();
-    }
         let enable_ime = self.ime_pending;
         self.ime_pending = false;
 
