@@ -271,7 +271,19 @@ fn main() {
             let execute_instruction = debugger.before_instruction(&cpu, &mut bus);
 
             if !execute_instruction {
+                bus.render_tile_debug(&mut tile_buffer);
+
                 window.update();
+                tile_window.update();
+
+                tile_window
+                    .update_with_buffer(
+                        &tile_buffer,
+                        TILE_DEBUG_WIDTH,
+                        TILE_DEBUG_HEIGHT,
+                    )
+                    .expect("Błąd aktualizacji okna VRAM");
+
                 break;
             }
 
@@ -324,6 +336,18 @@ fn main() {
         if frame_ready {
             debugger.next_frame(&mut bus);
 
+            bus.render_tile_debug(&mut tile_buffer);
+
+            tile_window
+                .update_with_buffer(
+                    &tile_buffer,
+                    TILE_DEBUG_WIDTH,
+                    TILE_DEBUG_HEIGHT,
+                )
+                .expect("Błąd aktualizacji okna VRAM");
+
+            let now = Instant::now();
+
             let now = Instant::now();
 
             if now < next_frame_time {
@@ -344,13 +368,6 @@ fn main() {
             if next_frame_time < now {
                 next_frame_time = now + frame_duration;
             }
-        }
-
-        if steps % 50_000 == 0 && steps != 0 {
-            bus.render_tile_debug(&mut tile_buffer);
-            tile_window
-                .update_with_buffer(&tile_buffer, TILE_DEBUG_WIDTH, TILE_DEBUG_HEIGHT)
-                .unwrap();
         }
     }
 }

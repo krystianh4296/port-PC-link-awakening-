@@ -593,16 +593,23 @@ impl Bus {
     pub fn render_tile_debug(&self, buffer: &mut [u32]) {
         const TILES_PER_ROW: usize = 16;
         const TILE_SIZE: usize = 8;
+        const TILE_COUNT: usize = 384;
         const WIDTH: usize = TILES_PER_ROW * TILE_SIZE;
+        const HEIGHT: usize = (TILE_COUNT / TILES_PER_ROW) * TILE_SIZE;
 
-        for tile in 0..384 {
-            let tile_x = tile % TILES_PER_ROW;
-            let tile_y = tile / TILES_PER_ROW;
+        // Wyczyść cały bufor.
+        buffer.fill(0x00FFFFFF);
+
+        for tile in 0..TILE_COUNT {
             let tile_addr = tile * 16;
 
-            if tile_addr + 15 >= self.vram.len() {
-                continue;
+            // 384 tile × 16 bajtów = dokładnie 0x1800 bajtów VRAM.
+            if tile_addr + 15 >= 0x1800 {
+                break;
             }
+
+            let tile_x = tile % TILES_PER_ROW;
+            let tile_y = tile / TILES_PER_ROW;
 
             for row in 0..8 {
                 let low = self.vram[tile_addr + row * 2];
@@ -610,16 +617,35 @@ impl Bus {
 
                 for col in 0..8 {
                     let bit = 7 - col;
-                    let color = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
-                    let gray = match color {
-                        0 => 0xFFFFFFFF,
-                        1 => 0xFFAAAAAA,
-                        2 => 0xFF555555,
-                        _ => 0xFF000000,
+
+                    let color_id =
+                        (((high >> bit) & 1) << 1) |
+                        ((low >> bit) & 1);
+
+                    // Game Boy:
+                    // 0 = biały
+                    // 1 = jasnoszary
+                    // 2 = ciemnoszary
+                    // 3 = czarny
+                    let gray = match color_id {
+                        0 => 0xFF,
+                        1 => 0xAA,
+                        2 => 0x55,
+                        3 => 0x00,
+                        _ => unreachable!(),
                     };
-                    let x = tile_x * 8 + col;
-                    let y = tile_y * 8 + row;
-                    buffer[y * WIDTH + x] = gray;
+
+                    let pixel =
+                        ((gray as u32) << 16) |
+                        ((gray as u32) << 8) |
+                        gray as u32;
+
+                    let x = tile_x * TILE_SIZE + col;
+                    let y = tile_y * TILE_SIZE + row;
+
+                    if x < WIDTH && y < HEIGHT {
+                        buffer[y * WIDTH + x] = pixel;
+                    }
                 }
             }
         }
