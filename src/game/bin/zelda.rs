@@ -40,31 +40,31 @@ fn main() {
     println!("  Rozmiar:      {} bytes", rom.len());
     println!("  Banki ROM:    {}", rom.bank_count());
     println!("  Tytuł:        {}", rom.header().title);
-    println!(
-        "  Cartridge:    {:02X}",
-        rom.header().cartridge_type
-    );
-    println!(
-        "  ROM size:     {:02X}",
-        rom.header().rom_size_code
-    );
-    println!(
-        "  RAM size:     {:02X}",
-        rom.header().ram_size_code
-    );
+    println!("  Cartridge:    {:02X}", rom.header().cartridge_type);
+    println!("  ROM size:     {:02X}", rom.header().rom_size_code);
+    println!("  RAM size:     {:02X}", rom.header().ram_size_code);
 
     let mut game = Game::new(rom);
 
     println!();
-    println!("Test mapowania ROM/MBC5:");
+    println!("Test zunifikowanej mapy pamięci:");
     println!("  Bank początkowy: {}", game.rom_bank());
-    println!("  [0000] = {:02X}", game.read_rom(0x0000));
-    println!("  [4000] = {:02X}", game.read_rom(0x4000));
+    println!("  [0000] = {:02X}", game.read(0x0000));
+    println!("  [4000] = {:02X}", game.read(0x4000));
 
     game.select_rom_bank(2);
     println!("  Po wyborze banku 2:");
     println!("  Bank aktywny:    {}", game.rom_bank());
-    println!("  [4000] = {:02X}", game.read_rom(0x4000));
+    println!("  [4000] = {:02X}", game.read(0x4000));
+
+    game.write(0xC000, 0x12);
+    println!("  [C000] zapis/odczyt = {:02X}", game.read(0xC000));
+
+    game.write(0x8000, 0x34);
+    println!("  [8000] zapis/odczyt = {:02X}", game.read(0x8000));
+
+    game.write(0xFF80, 0x56);
+    println!("  [FF80] zapis/odczyt = {:02X}", game.read(0xFF80));
 
     println!();
     println!("Uruchamianie natywnej wersji gry...");
