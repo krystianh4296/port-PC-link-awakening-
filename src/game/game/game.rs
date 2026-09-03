@@ -1,6 +1,5 @@
 use crate::input::Input;
-use crate::rom::{Rom, RomBank, RomError};
-use std::path::Path;
+use crate::rom::{Rom, RomBank};
 
 pub struct Game {
     running: bool,
@@ -9,14 +8,12 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new<P: AsRef<Path>>(rom_path: P) -> Result<Self, RomError> {
-        let rom = Rom::load(rom_path)?;
-
-        Ok(Self {
+    pub fn new(rom: Rom) -> Self {
+        Self {
             running: true,
             rom,
             rom_bank: RomBank::new(),
-        })
+        }
     }
 
     pub fn update(&mut self, _input: &Input, _delta_time: f32) {
