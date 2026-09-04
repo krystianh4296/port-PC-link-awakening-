@@ -303,6 +303,40 @@ impl Cpu {
         }
     }
 
+    fn inc8(&mut self, memory: &mut GameMemory, index: u8) {
+    let old = self.read_r8(memory, index);
+    let result = old.wrapping_add(1);
+
+    // INC nie zmienia Carry.
+    let carry = self.flag_c();
+
+    self.write_r8(memory, index, result);
+
+    self.set_flags(
+        result == 0,
+        false,
+        (old & 0x0F) == 0x0F,
+        carry,
+    );
+}
+
+fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
+    let old = self.read_r8(memory, index);
+    let result = old.wrapping_sub(1);
+
+    // DEC nie zmienia Carry.
+    let carry = self.flag_c();
+
+    self.write_r8(memory, index, result);
+
+    self.set_flags(
+        result == 0,
+        true,
+        (old & 0x0F) == 0,
+        carry,
+    );
+}
+
     fn execute_cb(&mut self, memory: &mut GameMemory, opcode: u8) -> u32 {
         let x = opcode >> 6;
         let y = (opcode >> 3) & 0x07;
@@ -556,14 +590,8 @@ impl Cpu {
 
         if opcode & 0xC7 == 0x04 {
             let index = (opcode >> 3) & 7;
-            let old = self.read_r8(memory, index);
-            let result = old.wrapping_add(1);
 
-            let carry = self.flag_c();
-
-            self.write_r8(memory, index, result);
-
-            self.set_flags(result == 0, false, (old & 0x0F) == 0x0F, carry);
+            self.inc8(memory, index);
 
             if index == 6 {
                 return 12;
@@ -578,14 +606,8 @@ impl Cpu {
 
         if opcode & 0xC7 == 0x05 {
             let index = (opcode >> 3) & 7;
-            let old = self.read_r8(memory, index);
-            let result = old.wrapping_sub(1);
 
-            let carry = self.flag_c();
-
-            self.write_r8(memory, index, result);
-
-            self.set_flags(result == 0, true, (old & 0x0F) == 0, carry);
+            self.dec8(memory, index);
 
             if index == 6 {
                 return 12;
@@ -1740,5 +1762,53 @@ fn cp_clears_old_flags() {
 
     assert_eq!(cpu.a, 0x20);
     assert_eq!(flags(&cpu), (false, true, false, false));
+}
+#[test]
+fn push_bc_pop_bc() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")
+        .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // Program testowy w WRAM:
+    // C000: PUSH BC
+    // C001: POP BC
+    memory.write(0xC000, 0xC5);
+    memory.write(0xC001, 0xC1);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+
+    cpu.b = 0x12;
+    cpu.c = 0x34;
+
+    // PUSH BC
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 16);
+    assert_eq!(cpu.pc, 0xC001);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // Game Boy stack:
+    // SP -> low byte
+    // SP+1 -> high byte
+    assert_eq!(memory.read(0xC0FE), 0x34);
+    assert_eq!(memory.read(0xC0FF), 0x12);
+
+    // POP BC
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 12);
+    assert_eq!(cpu.pc, 0xC002);
+    assert_eq!(cpu.sp, 0xC100);
+
+    assert_eq!(cpu.b, 0x12);
+    assert_eq!(cpu.c, 0x34);
 }
 }
