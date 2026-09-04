@@ -8,7 +8,10 @@ const TARGET_FPS: u32 = 60;
 const FRAME_TIME: Duration =
     Duration::from_nanos(1_000_000_000 / TARGET_FPS as u64);
 
-const TILE_DATA_START: usize = 0x2C000;
+const GRAPHICS_BANK: usize = 0x0C;
+const TILE_SIZE: usize = 16;
+const TILES_PER_ROW: usize = 32;
+const TILE_COUNT: usize = 1024;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rom = Rom::load(
@@ -36,15 +39,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn render_tileset(renderer: &mut Renderer, rom: &Rom) {
     renderer.clear(0xFF202020);
 
-    for tile_index in 0..512 {
-        let address = TILE_DATA_START + tile_index * 16;
+    let bank = rom.bank(GRAPHICS_BANK);
 
-        let bytes = rom.tile_bytes(address);
+    for tile_index in 0..TILE_COUNT {
+        let offset = tile_index * TILE_SIZE;
+
+        let bytes: [u8; 16] = bank[offset..offset + TILE_SIZE]
+            .try_into()
+            .expect("Nieprawidłowy zakres tile");
+
         let tile = Tile::decode(&bytes);
 
-        let tx = tile_index % 16;
-        let ty = tile_index / 16;
+        let x = (tile_index % TILES_PER_ROW) * 8;
+        let y = (tile_index / TILES_PER_ROW) * 8;
 
-        tile.render(renderer, tx * 8, ty * 8);
+        tile.render(renderer, x, y);
     }
 }

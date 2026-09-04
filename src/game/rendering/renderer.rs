@@ -1,6 +1,6 @@
 use minifb::{Window, WindowOptions};
 
-pub const WIDTH: usize = 128;
+pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;
 
 pub struct Renderer {
