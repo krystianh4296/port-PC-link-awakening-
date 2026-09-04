@@ -113,7 +113,8 @@ pub fn print_ascii(tile:&Tile){
         }
         println!();
     }
-    fn render_tileset(renderer: &mut Renderer, rom: &Rom) {
+}
+fn render_tileset(renderer: &mut Renderer, rom: &Rom) {
         renderer.clear(0xFF202020);
 
         for tile_index in 0..512 {
@@ -129,4 +130,3 @@ pub fn print_ascii(tile:&Tile){
             tile.render(renderer, tx * 8, ty * 8);
         }
     }
-}
