@@ -100,4 +100,45 @@ impl GameMemory {
             self.io[0x0F] |= 0x04;
         }
     }
+    #[cfg(test)]
+    fn new_test() -> Self {
+        use crate::rom::Rom;
+        use std::path::Path;
+
+        let rom = Rom::load(Path::new("test.rom"))
+            .expect("test ROM required");
+        Self::new(Cartridge::new(rom))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    fn test_memory() -> GameMemory {
+        let rom_path = std::env::var("GAMEBOY_ROM")
+            .expect("GAMEBOY_ROM must point to a .gb/.gbc ROM");
+
+        let rom = Rom::load(rom_path).expect("failed to load test ROM");
+        GameMemory::new(Cartridge::new(rom))
+    }
+
+    #[test]
+    fn timer_overflow_sets_timer_interrupt_flag() {
+        let mut memory = test_memory();
+
+        memory.write(0xFF05, 0xFF);
+        memory.write(0xFF06, 0x42);
+        memory.write(0xFF07, 0x05);
+
+        memory.step(16);
+
+        assert_eq!(memory.read(0xFF05), 0x00);
+
+        memory.step(4);
+
+        assert_eq!(memory.read(0xFF05), 0x42);
+        assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
+    }
 }
