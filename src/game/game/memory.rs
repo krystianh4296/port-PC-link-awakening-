@@ -135,10 +135,11 @@ impl GameMemory {
         if self.serial.take_interrupt() {
             self.interrupt.request(3);
         }
+        if self.joypad.take_interrupt() {
+    self.interrupt.request(4);
+}
     }
-    pub fn joypad_button_pressed(&mut self, button: u8) {
-        self.joypad.button_pressed(button);
-    }
+    
 }
 
 #[cfg(test)]
