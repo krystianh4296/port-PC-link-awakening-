@@ -24,7 +24,10 @@ impl Game {
         _delta_time: f32,
     ) {
         // około jedna instrukcja CPU na wywołanie.
-        self.cpu.step(&mut self.memory);
+        let cycles = self.cpu.step(&mut self.memory);
+
+        self.memory.step(cycles);
+
         println!(
             "PC={:04X} OP={:02X}",
             self.cpu.pc,

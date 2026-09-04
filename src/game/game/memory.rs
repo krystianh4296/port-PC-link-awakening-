@@ -1,3 +1,4 @@
+use crate::game::hardware::timer::Timer;
 use crate::rom::Cartridge;
 
 /// CPU-visible memory map for the native Link's Awakening DX port.
@@ -14,6 +15,7 @@ pub struct GameMemory {
     io: [u8; 0x0080],
     hram: [u8; 0x007F],
     ie: u8,
+    timer: Timer,
 }
 
 impl GameMemory {
@@ -26,6 +28,7 @@ impl GameMemory {
             io: [0; 0x0080],
             hram: [0; 0x007F],
             ie: 0,
+            timer: Timer::new(),
         }
     }
 
@@ -46,7 +49,10 @@ impl GameMemory {
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize],
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize],
             0xFEA0..=0xFEFF => 0xFF,
-            0xFF00..=0xFF7F => self.io[(address - 0xFF00) as usize],
+            0xFF04..=0xFF07 => self.timer.read(address),
+            0xFF00..=0xFF03 | 0xFF08..=0xFF7F => {
+                self.io[(address - 0xFF00) as usize]
+            }
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize],
             0xFFFF => self.ie,
         }
@@ -61,7 +67,16 @@ impl GameMemory {
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize] = value,
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize] = value,
             0xFEA0..=0xFEFF => {},
-            0xFF00..=0xFF7F => self.io[(address - 0xFF00) as usize] = value,
+            0xFF04..=0xFF07 => {
+                self.timer.write(address, value);
+
+                if self.timer.take_interrupt() {
+                    self.io[0x0F] |= 0x04;
+                }
+            }
+            0xFF00..=0xFF03 | 0xFF08..=0xFF7F => {
+                self.io[(address - 0xFF00) as usize] = value;
+            }
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize] = value,
             0xFFFF => self.ie = value,
         }
@@ -77,5 +92,12 @@ impl GameMemory {
         let [lo, hi] = value.to_le_bytes();
         self.write(address, lo);
         self.write(address.wrapping_add(1), hi);
+    }
+    pub fn step(&mut self, cycles: u32) {
+        self.timer.step(cycles);
+
+        if self.timer.take_interrupt() {
+            self.io[0x0F] |= 0x04;
+        }
     }
 }
