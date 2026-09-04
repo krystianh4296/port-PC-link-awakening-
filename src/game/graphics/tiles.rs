@@ -1,3 +1,5 @@
+use crate::rendering::renderer::Renderer;
+
 pub type TilePixel = u8;
 
 #[derive(Clone, Debug)]
