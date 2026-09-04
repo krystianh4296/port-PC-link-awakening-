@@ -18,6 +18,7 @@ pub struct Cpu {
     pub ime: bool,
     pub ime_pending: bool,
     pub halted: bool,
+    pub halt_bug: bool,
 
     pub opcode_counts: [u64; 256],
 }
@@ -38,6 +39,7 @@ impl Cpu {
             ime: false,
             ime_pending: false,
             halted: false,
+            halt_bug: false,
             opcode_counts: [0; 256],
         }
     }
@@ -57,6 +59,7 @@ impl Cpu {
         self.ime = false;
         self.ime_pending = false;
         self.halted = false;
+        self.halt_bug = false;
     }
 
     pub fn af(&self) -> u16 {
@@ -503,12 +506,21 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
             return self.execute_interrupt(memory, pending);
         }
 
+        let opcode = memory.read(self.pc);
+
+        if self.halt_bug {
+            self.halt_bug = false;
+        } else {
+            self.pc = self.pc.wrapping_add(1);
+        }
+
         let cycles = self.execute(memory);
+
         if self.pc == 0x0100 {
             println!("CPU WRÓCIŁ DO 0100");
         }
 
-        if enable_ime {
+        if enable_ime && opcode != 0xF3 {
             self.ime = true;
         }
 
@@ -1121,9 +1133,18 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
                 8
             }
 
-            // HALT
             0x76 => {
-                self.halted = true;
+                let if_reg = memory.read(0xFF0F);
+                let ie = memory.read(0xFFFF);
+                let pending = if_reg & ie & 0x1F;
+
+                if !self.ime && pending != 0 {
+                    self.halt_bug = true;
+                    self.halted = false;
+                } else {
+                    self.halted = true;
+                }
+
                 4
             }
 
@@ -2197,11 +2218,8 @@ fn halt_wakes_on_pending_interrupt() {
     assert_eq!(cpu.pc, 0xC001);
     assert!(cpu.halted);
 
-    // TIMER interrupt pending:
-    // IF bit 2 = 1
-    memory.write(0xFF0F, 0x04);
-
-    // Interrupt nie jest jeszcze włączony.
+    memory.write(0xFF0F, 0x04); // IF: TIMER interrupt requested
+    memory.write(0xFFFF, 0x04); // IE: TIMER interrupt enabled
     cpu.ime = false;
 
     let cycles = cpu.step(&mut memory);
@@ -2211,5 +2229,546 @@ fn halt_wakes_on_pending_interrupt() {
     assert_eq!(cycles, 4);
     assert!(!cpu.halted);
     assert_eq!(cpu.pc, 0xC001);
+}
+#[test]
+fn interrupt_services_timer_when_ime_enabled() {
+    use crate::rom::{Cartridge, Rom};
+    let mut cpu = cpu();
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    cpu.pc = 0xC001;
+    cpu.sp = 0xC100;
+    cpu.ime = true;
+    cpu.halted = false;
+
+    // Timer interrupt:
+    // IF bit 2 = request
+    // IE bit 2 = enabled
+    memory.write(0xFF0F, 0x04);
+    memory.write(0xFFFF, 0x04);
+
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 20);
+
+    // Timer interrupt vector
+    assert_eq!(cpu.pc, 0x0050);
+
+    // Interrupt disables IME
+    assert!(!cpu.ime);
+
+    // CPU is no longer halted
+    assert!(!cpu.halted);
+
+    // TIMER bit in IF cleared
+    assert_eq!(memory.read(0xFF0F) & 0x04, 0);
+
+    // SP: C100 -> C0FE
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // Saved PC = C001, little endian
+    assert_eq!(memory.read(0xC0FE), 0x01);
+    assert_eq!(memory.read(0xC0FF), 0xC0);
+}
+#[test]
+fn interrupt_priority_vblank_over_timer() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    cpu.pc = 0xC001;
+    cpu.sp = 0xC100;
+    cpu.ime = true;
+    cpu.halted = false;
+
+    // VBlank + Timer jednocześnie pending
+    memory.write(0xFF0F, 0x05);
+
+    // VBlank + Timer jednocześnie enabled
+    memory.write(0xFFFF, 0x05);
+
+    let cycles = cpu.step(&mut memory);
+
+    // Obsłużony powinien zostać VBlank, bo ma wyższy priorytet.
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0x0040);
+
+    // IME zostaje wyłączone.
+    assert!(!cpu.ime);
+
+    // VBlank bit 0 został wyczyszczony.
+    assert_eq!(memory.read(0xFF0F) & 0x01, 0);
+
+    // Timer bit 2 nadal pozostaje pending.
+    assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
+
+    // PC zapisany na stosie.
+    assert_eq!(cpu.sp, 0xC0FE);
+    assert_eq!(memory.read(0xC0FE), 0x01);
+    assert_eq!(memory.read(0xC0FF), 0xC0);
+}
+#[test]
+fn interrupt_priority_all_vectors() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    cpu.pc = 0xC001;
+    cpu.sp = 0xC100;
+    cpu.ime = true;
+
+    // Wszystkie 5 przerwań jednocześnie pending.
+    memory.write(0xFF0F, 0x1F);
+
+    // Wszystkie 5 przerwań włączone.
+    memory.write(0xFFFF, 0x1F);
+
+    let cycles = cpu.step(&mut memory);
+
+    // Najwyższy priorytet ma VBlank.
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0x0040);
+
+    // IME wyłączone po wejściu w interrupt.
+    assert!(!cpu.ime);
+
+    // Tylko VBlank został skasowany.
+    assert_eq!(memory.read(0xFF0F), 0x1E);
+
+    // Powrót zapisany na stosie.
+    assert_eq!(cpu.sp, 0xC0FE);
+    assert_eq!(memory.read(0xC0FE), 0x01);
+    assert_eq!(memory.read(0xC0FF), 0xC0);
+}
+#[test]
+fn ei_enables_ime_after_next_instruction() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: EI
+    // C001: NOP
+    memory.write(0xC000, 0xFB);
+    memory.write(0xC001, 0x00);
+
+    cpu.pc = 0xC000;
+    cpu.ime = false;
+    cpu.ime_pending = false;
+
+    // EI
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC001);
+
+    // EI nie włącza IME natychmiast.
+    assert!(!cpu.ime);
+
+    // IME oczekuje na następny krok.
+    assert!(cpu.ime_pending);
+
+    // NOP
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC002);
+
+    // Dopiero po wykonaniu następnej instrukcji IME = true.
+    assert!(cpu.ime);
+    assert!(!cpu.ime_pending);
+}
+#[test]
+fn ei_delays_interrupt_until_after_next_instruction() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: EI
+    // C001: NOP
+    memory.write(0xC000, 0xFB);
+    memory.write(0xC001, 0x00);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.ime = false;
+
+    // Timer interrupt pending + enabled.
+    memory.write(0xFF0F, 0x04);
+    memory.write(0xFFFF, 0x04);
+
+    // EI
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC001);
+
+    // Interrupt nie może zostać obsłużony jeszcze teraz.
+    assert!(!cpu.ime);
+    assert!(cpu.ime_pending);
+    assert_eq!(cpu.pc, 0xC001);
+
+    // Następny krok wykonuje NOP.
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+
+    // Dopiero teraz IME zostaje włączone.
+    assert!(cpu.ime);
+    assert!(!cpu.ime_pending);
+
+    // Interrupt nadal nie powinien zostać obsłużony
+    // w tym samym kroku co NOP.
+    assert_eq!(cpu.pc, 0xC002);
+
+    // Kolejny step powinien już obsłużyć Timer interrupt.
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0x0050);
+    assert!(!cpu.ime);
+}
+#[test]
+fn di_disables_ime_and_cancels_pending_ei() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: EI
+    // C001: DI
+    memory.write(0xC000, 0xFB);
+    memory.write(0xC001, 0xF3);
+
+    cpu.pc = 0xC000;
+    cpu.ime = false;
+    cpu.ime_pending = false;
+
+    // EI
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC001);
+    assert!(!cpu.ime);
+    assert!(cpu.ime_pending);
+
+    // DI
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC002);
+
+    // DI musi anulować oczekujące EI.
+    assert!(!cpu.ime);
+    assert!(!cpu.ime_pending);
+}
+#[test]
+fn reti_restores_pc_and_enables_ime() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // RETI znajduje się w WRAM.
+    cpu.pc = 0xC001;
+    cpu.sp = 0xC0FE;
+    cpu.ime = false;
+
+    // Na stosie znajduje się adres powrotu C001.
+    memory.write(0xC0FE, 0x01);
+    memory.write(0xC0FF, 0xC0);
+
+    // C001: RETI
+    memory.write(0xC001, 0xD9);
+
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 16);
+
+    // Przywrócony adres powrotu.
+    assert_eq!(cpu.pc, 0xC001);
+
+    // SP zwiększony po POP.
+    assert_eq!(cpu.sp, 0xC100);
+
+    // RETI ponownie włącza IME.
+    assert!(cpu.ime);
+}
+#[test]
+fn interrupt_then_reti_restores_cpu_state() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // CPU przed przerwaniem
+    cpu.pc = 0xC001;
+    cpu.sp = 0xC100;
+    cpu.ime = true;
+    cpu.halted = false;
+
+    // Timer interrupt
+    memory.write(0xFF0F, 0x04);
+    memory.write(0xFFFF, 0x04);
+
+    // ISR testujemy w WRAM, ponieważ ROM 0x0050 jest tylko do odczytu.
+    memory.write(0xC002, 0xD9); // RETI
+
+    // 1. Obsługa przerwania
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0x0050);
+    assert_eq!(cpu.sp, 0xC0FE);
+    assert!(!cpu.ime);
+    assert!(!cpu.halted);
+
+    // CPU powinien odłożyć adres powrotu C001 na stos.
+    assert_eq!(memory.read(0xC0FE), 0x01);
+    assert_eq!(memory.read(0xC0FF), 0xC0);
+
+    // 2. Symulujemy wejście do ISR.
+    // Właściwy wektor 0050 znajduje się w ROM,
+    // dlatego test przenosi PC do przygotowanego RETI w WRAM.
+    cpu.pc = 0xC002;
+
+    // 3. RETI
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 16);
+    assert_eq!(cpu.pc, 0xC001);
+    assert_eq!(cpu.sp, 0xC100);
+
+    // RETI musi ponownie włączyć IME.
+    assert!(cpu.ime);
+}
+#[test]
+fn interrupt_all_vectors_individually() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let tests = [
+        (0x01u8, 0x0040u16), // VBlank
+        (0x02u8, 0x0048u16), // STAT
+        (0x04u8, 0x0050u16), // Timer
+        (0x08u8, 0x0058u16), // Serial
+        (0x10u8, 0x0060u16), // Joypad
+    ];
+
+    for (interrupt_bit, vector) in tests {
+        let rom = Rom::load(
+            "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+        )
+        .expect("Nie można załadować ROM-u testowego");
+
+        let cartridge = Cartridge::new(rom);
+        let mut memory = GameMemory::new(cartridge);
+
+        let mut cpu = Cpu::new();
+
+        cpu.pc = 0xC001;
+        cpu.sp = 0xC100;
+        cpu.ime = true;
+        cpu.halted = false;
+
+        memory.write(0xFF0F, interrupt_bit);
+        memory.write(0xFFFF, interrupt_bit);
+
+        let cycles = cpu.step(&mut memory);
+
+        assert_eq!(
+            cycles,
+            20,
+            "Zła liczba cykli dla interrupt {:02X}",
+            interrupt_bit
+        );
+
+        assert_eq!(
+            cpu.pc,
+            vector,
+            "Zły wektor dla interrupt {:02X}",
+            interrupt_bit
+        );
+
+        assert_eq!(cpu.sp, 0xC0FE);
+        assert!(!cpu.ime);
+        assert!(!cpu.halted);
+
+        // Adres powrotu C001 zapisany na stosie.
+        assert_eq!(memory.read(0xC0FE), 0x01);
+        assert_eq!(memory.read(0xC0FF), 0xC0);
+
+        // Obsłużony bit IF musi zostać wyzerowany.
+        assert_eq!(memory.read(0xFF0F) & interrupt_bit, 0);
+    }
+}
+#[test]
+fn halt_wakes_on_pending_interrupt_without_ime() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.ime = false;
+    cpu.halted = false;
+
+    // HALT
+    memory.write(0xC000, 0x76);
+
+    // Następna instrukcja po HALT
+    memory.write(0xC001, 0x00); // NOP
+
+    // Timer interrupt pending
+    memory.write(0xFF0F, 0x04);
+    memory.write(0xFFFF, 0x04);
+
+    // 1. Wykonanie HALT
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC001);
+    assert!(cpu.halted);
+    assert!(!cpu.ime);
+
+    // 2. Pending interrupt budzi CPU,
+    // ale IME=0 oznacza, że interrupt nie jest wykonywany.
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert!(!cpu.halted);
+
+    // PC nie powinien zostać przeniesiony do wektora 0050.
+    assert_eq!(cpu.pc, 0xC001);
+
+    // IME nadal wyłączone.
+    assert!(!cpu.ime);
+
+    // Interrupt nadal pending.
+    assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
+
+    // Stos nie powinien zostać zmieniony.
+    assert_eq!(cpu.sp, 0xC100);
+}
+#[test]
+fn halt_bug_does_not_advance_pc_twice() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.ime = false;
+    cpu.halted = false;
+
+    // HALT
+    memory.write(0xC000, 0x76);
+
+    // Opcode po HALT
+    memory.write(0xC001, 0x00); // NOP
+
+    // Interrupt pending jeszcze przed wykonaniem HALT.
+    memory.write(0xFF0F, 0x04);
+    memory.write(0xFFFF, 0x04);
+
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+
+    // HALT bug: CPU nie powinien wejść w normalny stan halted.
+    assert!(!cpu.halted);
+
+    // PC po HALT powinien pozostać na adresie następnej instrukcji.
+    assert_eq!(cpu.pc, 0xC001);
+
+    // IME pozostaje wyłączone.
+    assert!(!cpu.ime);
+
+    // Interrupt nie został obsłużony.
+    assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
 }
 }
