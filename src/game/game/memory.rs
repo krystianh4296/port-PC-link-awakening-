@@ -61,7 +61,7 @@ impl GameMemory {
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00 => self.joypad.read(),
             0xFF01..=0xFF02 => self.serial.read(address),
-            0xFF41 | 0xFF44 | 0xFF45 => self.ppu.read(address),
+            0xFF40 | 0xFF41 | 0xFF44 | 0xFF45 => self.ppu.read(address),
             0xFF04..=0xFF07 => self.timer.read(address),
             0xFF0F => self.interrupt.read_if(),
             0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF7F => {
@@ -81,7 +81,7 @@ impl GameMemory {
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize] = value,
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize] = value,
             0xFEA0..=0xFEFF => {},
-            0xFF41 | 0xFF45 => self.ppu.write(address, value),
+            0xFF40 | 0xFF41 | 0xFF45 => self.ppu.write(address, value),
             0xFF00 => self.joypad.write(value),
             0xFF01..=0xFF02 => {
                 self.serial.write(address, value);
@@ -112,6 +112,9 @@ impl GameMemory {
         let [lo, hi] = value.to_le_bytes();
         self.write(address, lo);
         self.write(address.wrapping_add(1), hi);
+    }
+    pub fn joypad_button_pressed(&mut self, button: u8) {
+        self.joypad.button_pressed(button);
     }
     pub fn step(&mut self, cycles: u32) {
         self.timer.step(cycles);
@@ -254,5 +257,25 @@ fn stat_interrupt_jumps_to_0048() {
     // CPU powinien zapisać poprzedni PC na stosie.
     assert_eq!(memory.read(0xFFFC), 0x34);
     assert_eq!(memory.read(0xFFFD), 0x12);
+}
+#[test]
+fn lcdc_read_write() {
+    let mut ppu = Ppu::new();
+
+    assert_eq!(ppu.read(0xFF40), 0x91);
+
+    ppu.write(0xFF40, 0xC7);
+
+    assert_eq!(ppu.read(0xFF40), 0xC7);
+}
+#[test]
+fn lcdc_bits_are_preserved() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF40, 0x00);
+    assert_eq!(ppu.read(0xFF40), 0x00);
+
+    ppu.write(0xFF40, 0xFF);
+    assert_eq!(ppu.read(0xFF40), 0xFF);
 }
 }
