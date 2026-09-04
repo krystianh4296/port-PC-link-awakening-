@@ -2,6 +2,7 @@ use gameboy_port::game::game::Game;
 use gameboy_port::input::Input;
 use gameboy_port::rendering::renderer::Renderer;
 use gameboy_port::rom::Rom;
+use gameboy_port::graphics::Tile;
 
 use std::env;
 use std::time::{Duration, Instant};
