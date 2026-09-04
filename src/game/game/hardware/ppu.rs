@@ -20,7 +20,7 @@ impl Ppu {
         Self {
             ly: 0,
             lyc: 0,
-            lcdc: 0,
+            lcdc: 0x91,
             stat: 0x80,
 
             cycle_counter: 0,
