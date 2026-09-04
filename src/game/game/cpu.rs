@@ -1811,4 +1811,405 @@ fn push_bc_pop_bc() {
     assert_eq!(cpu.b, 0x12);
     assert_eq!(cpu.c, 0x34);
 }
+#[test]
+fn push_af_pop_af() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: PUSH AF
+    // C001: POP AF
+    memory.write(0xC000, 0xF5);
+    memory.write(0xC001, 0xF1);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+
+    cpu.a = 0xAB;
+    cpu.f = 0xF0;
+
+    // PUSH AF
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 16);
+    assert_eq!(cpu.pc, 0xC001);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    assert_eq!(memory.read(0xC0FE), 0xF0);
+    assert_eq!(memory.read(0xC0FF), 0xAB);
+
+    // POP AF
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 12);
+    assert_eq!(cpu.pc, 0xC002);
+    assert_eq!(cpu.sp, 0xC100);
+
+    assert_eq!(cpu.a, 0xAB);
+    assert_eq!(cpu.f, 0xF0);
+}
+#[test]
+fn call_ret() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: CALL C010
+    // C003: następna instrukcja po CALL
+    // C010: RET
+
+    memory.write(0xC000, 0xCD);
+    memory.write(0xC001, 0x10);
+    memory.write(0xC002, 0xC0);
+
+    memory.write(0xC010, 0xC9);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+
+    // CALL C010
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 24);
+    assert_eq!(cpu.pc, 0xC010);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // Adres powrotu = C003
+    // SP -> low byte
+    // SP+1 -> high byte
+    assert_eq!(memory.read(0xC0FE), 0x03);
+    assert_eq!(memory.read(0xC0FF), 0xC0);
+
+    // RET
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 16);
+    assert_eq!(cpu.pc, 0xC003);
+    assert_eq!(cpu.sp, 0xC100);
+}
+#[test]
+fn conditional_call_ret() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: CALL NZ,C010
+    memory.write(0xC000, 0xC4);
+    memory.write(0xC001, 0x10);
+    memory.write(0xC002, 0xC0);
+
+    // C010: RET NZ
+    memory.write(0xC010, 0xC0);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+
+    // Z = 0 -> CALL NZ powinien zostać wykonany.
+    cpu.f = 0x00;
+
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 24);
+    assert_eq!(cpu.pc, 0xC010);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // Na stosie powinien być adres C003.
+    assert_eq!(memory.read(0xC0FE), 0x03);
+    assert_eq!(memory.read(0xC0FF), 0xC0);
+
+    // RET NZ -> Z nadal 0, więc wykonany.
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0xC003);
+    assert_eq!(cpu.sp, 0xC100);
+
+    // Teraz sprawdzamy CALL NZ, gdy Z = 1.
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x80;
+
+    let cycles = cpu.step(&mut memory);
+
+    // CALL NZ nie powinien zostać wykonany.
+    assert_eq!(cycles, 12);
+    assert_eq!(cpu.pc, 0xC003);
+    assert_eq!(cpu.sp, 0xC100);
+}
+#[test]
+fn conditional_call_all_conditions() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: CALL NZ,C010
+    memory.write(0xC000, 0xC4);
+    memory.write(0xC001, 0x10);
+    memory.write(0xC002, 0xC0);
+
+    // C010: RET
+    memory.write(0xC010, 0xC9);
+
+    // --------------------------------------------------
+    // NZ: Z = 0 -> wykonany
+    // --------------------------------------------------
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x00;
+
+    assert_eq!(cpu.step(&mut memory), 24);
+    assert_eq!(cpu.pc, 0xC010);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // --------------------------------------------------
+    // NZ: Z = 1 -> niewykonany
+    // --------------------------------------------------
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x80;
+
+    assert_eq!(cpu.step(&mut memory), 12);
+    assert_eq!(cpu.pc, 0xC003);
+    assert_eq!(cpu.sp, 0xC100);
+
+    // --------------------------------------------------
+    // Z: Z = 1 -> wykonany
+    // --------------------------------------------------
+
+    memory.write(0xC000, 0xCC);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x80;
+
+    assert_eq!(cpu.step(&mut memory), 24);
+    assert_eq!(cpu.pc, 0xC010);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // --------------------------------------------------
+    // Z: Z = 0 -> niewykonany
+    // --------------------------------------------------
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x00;
+
+    assert_eq!(cpu.step(&mut memory), 12);
+    assert_eq!(cpu.pc, 0xC003);
+    assert_eq!(cpu.sp, 0xC100);
+
+    // --------------------------------------------------
+    // NC: C = 0 -> wykonany
+    // --------------------------------------------------
+
+    memory.write(0xC000, 0xD4);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x00;
+
+    assert_eq!(cpu.step(&mut memory), 24);
+    assert_eq!(cpu.pc, 0xC010);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // --------------------------------------------------
+    // NC: C = 1 -> niewykonany
+    // --------------------------------------------------
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x10;
+
+    assert_eq!(cpu.step(&mut memory), 12);
+    assert_eq!(cpu.pc, 0xC003);
+    assert_eq!(cpu.sp, 0xC100);
+
+    // --------------------------------------------------
+    // C: C = 1 -> wykonany
+    // --------------------------------------------------
+
+    memory.write(0xC000, 0xDC);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x10;
+
+    assert_eq!(cpu.step(&mut memory), 24);
+    assert_eq!(cpu.pc, 0xC010);
+    assert_eq!(cpu.sp, 0xC0FE);
+
+    // --------------------------------------------------
+    // C: C = 0 -> niewykonany
+    // --------------------------------------------------
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+    cpu.f = 0x00;
+
+    assert_eq!(cpu.step(&mut memory), 12);
+    assert_eq!(cpu.pc, 0xC003);
+    assert_eq!(cpu.sp, 0xC100);
+}
+#[test]
+fn rst_all_vectors() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let vectors = [
+        (0xC7, 0x00),
+        (0xCF, 0x08),
+        (0xD7, 0x10),
+        (0xDF, 0x18),
+        (0xE7, 0x20),
+        (0xEF, 0x28),
+        (0xF7, 0x30),
+        (0xFF, 0x38),
+    ];
+
+    for &(opcode, vector) in &vectors {
+        let mut cpu = Cpu::new();
+
+        // C000: RST xx
+        memory.write(0xC000, opcode);
+
+        cpu.pc = 0xC000;
+        cpu.sp = 0xC100;
+
+        let cycles = cpu.step(&mut memory);
+
+        assert_eq!(cycles, 16);
+        assert_eq!(cpu.pc, vector);
+        assert_eq!(cpu.sp, 0xC0FE);
+
+        // RST musi zapisać adres następnej instrukcji: C001
+        assert_eq!(memory.read(0xC0FE), 0x01);
+        assert_eq!(memory.read(0xC0FF), 0xC0);
+    }
+}
+#[test]
+fn halt_stops_cpu() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: HALT
+    // C001: NOP
+    memory.write(0xC000, 0x76);
+    memory.write(0xC001, 0x00);
+
+    cpu.pc = 0xC000;
+
+    // HALT
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC001);
+    assert!(cpu.halted);
+
+    // CPU jest zatrzymany.
+    // Kolejny step nie powinien wykonać NOP-a.
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC001);
+    assert!(cpu.halted);
+}
+#[test]
+fn halt_wakes_on_pending_interrupt() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc"
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    // C000: HALT
+    memory.write(0xC000, 0x76);
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xC100;
+
+    // HALT
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.pc, 0xC001);
+    assert!(cpu.halted);
+
+    // TIMER interrupt pending:
+    // IF bit 2 = 1
+    memory.write(0xFF0F, 0x04);
+
+    // Interrupt nie jest jeszcze włączony.
+    cpu.ime = false;
+
+    let cycles = cpu.step(&mut memory);
+
+    // CPU powinien wybudzić się z HALT,
+    // ale ponieważ IME = false, nie obsługuje jeszcze przerwania.
+    assert_eq!(cycles, 4);
+    assert!(!cpu.halted);
+    assert_eq!(cpu.pc, 0xC001);
+}
 }
