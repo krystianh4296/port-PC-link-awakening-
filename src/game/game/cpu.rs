@@ -486,16 +486,6 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
         let if_reg = memory.read(0xFF0F);
         let ie = memory.read(0xFFFF);
         let pending = if_reg & ie & 0x1F;
-        println!(
-            "STEP: PC={:04X} HALTED={} HALT_BUG={} IME={} IF={:02X} IE={:02X} PENDING={:02X}",
-            self.pc,
-            self.halted,
-            self.halt_bug,
-            self.ime,
-            if_reg,
-            ie,
-            pending
-        );
         if self.halted {
             if pending != 0 {
                 self.halted = false;
@@ -523,7 +513,7 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
             self.pc = self.pc.wrapping_add(1);
         }
 
-        let cycles = self.execute(memory);
+        let cycles = self.execute(memory, opcode);
 
         if self.pc == 0x0100 {
             println!("CPU WRÓCIŁ DO 0100");
@@ -536,27 +526,35 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
         cycles
     }
 
-    fn execute(&mut self, memory: &mut GameMemory) -> u32 {
-        let opcode = memory.read(self.pc);
-        self.pc = self.pc.wrapping_add(1);
-
+    fn execute(&mut self, memory: &mut GameMemory, opcode: u8) -> u32 {
         self.opcode_counts[opcode as usize] += 1;
+
+        // HALT
+        if opcode == 0x76 {
+            let if_reg = memory.read(0xFF0F);
+            let ie = memory.read(0xFFFF);
+            let pending = if_reg & ie & 0x1F;
+
+            if !self.ime && pending != 0 {
+                self.halt_bug = true;
+                self.halted = false;
+            } else {
+                self.halted = true;
+            }
+
+            return 4;
+        }
 
         if opcode == 0xCB {
             let cb_opcode = self.read_imm8(memory);
             return self.execute_cb(memory, cb_opcode);
         }
+
         // -------------------------------------------------
         // LD r8,r8
         // -------------------------------------------------
 
         if (0x40..=0x7F).contains(&opcode) {
-            // HALT
-            if opcode == 0x76 {
-                self.halted = true;
-                return 4;
-            }
-
             let dst = (opcode >> 3) & 7;
             let src = opcode & 7;
             let value = self.read_r8(memory, src);
@@ -1140,33 +1138,6 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
                 self.alu_a(op, value);
 
                 8
-            }
-
-            0x76 => {
-                println!(
-                    "HALT EXEC: PC={:04X} IME={} HALTED_BEFORE={} HALT_BUG_BEFORE={}",
-                    self.pc,
-                    self.ime,
-                    self.halted,
-                    self.halt_bug
-                );
-                let if_reg = memory.read(0xFF0F);
-                let ie = memory.read(0xFFFF);
-                let pending = if_reg & ie & 0x1F;
-                
-                if !self.ime && pending != 0 {
-                    self.halt_bug = true;
-                    self.halted = false;
-                } else {
-                    self.halted = true;
-                }
-                println!(
-                    "HALT EXEC AFTER: PC={:04X} HALTED={} HALT_BUG={}",
-                    self.pc,
-                    self.halted,
-                    self.halt_bug
-                );
-                4
             }
 
             // LD (HL),A
