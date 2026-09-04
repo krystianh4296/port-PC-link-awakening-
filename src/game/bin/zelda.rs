@@ -86,6 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         game.update(&input, FRAME_TIME.as_secs_f32());
 
+        render_tileset(&mut renderer, &rom);
+
         renderer.draw();
 
         let elapsed = frame_start.elapsed();
@@ -110,5 +112,21 @@ pub fn print_ascii(tile:&Tile){
             print!("{c}");
         }
         println!();
+    }
+    fn render_tileset(renderer: &mut Renderer, rom: &Rom) {
+        renderer.clear(0xFF202020);
+
+        for tile_index in 0..512 {
+            const TILE_DATA_START: usize = 0x2C000;
+
+            let address = TILE_DATA_START + tile_index * 16;
+            let bytes = rom.tile_bytes(address);
+            let tile = Tile::decode(&bytes);
+
+            let tx = tile_index % 16;
+            let ty = tile_index / 16;
+
+            tile.render(renderer, tx * 8, ty * 8);
+        }
     }
 }

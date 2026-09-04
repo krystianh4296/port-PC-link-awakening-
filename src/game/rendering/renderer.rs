@@ -1,7 +1,7 @@
 use minifb::{Window, WindowOptions};
 
-pub const WIDTH: usize = 160;
-pub const HEIGHT: usize = 144;
+pub const WIDTH: usize = 128;
+pub const HEIGHT: usize = 256;
 
 pub struct Renderer {
     window: Window,
@@ -39,5 +39,14 @@ impl Renderer {
     }
     pub fn window(&self) -> &Window {
         &self.window
+    }
+    pub fn set_pixel(&mut self, x: usize, y: usize, color: u32) {
+    if x < WIDTH && y < HEIGHT {
+        self.buffer[y * WIDTH + x] = color;
+    }
+    }
+
+    pub fn clear(&mut self, color: u32) {
+        self.buffer.fill(color);
     }
 }
