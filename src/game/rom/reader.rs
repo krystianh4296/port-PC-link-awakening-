@@ -107,4 +107,9 @@ impl Rom {
             _ => panic!("Adres {:04X} nie jest adresem ROM", address),
         }
     }
+    pub fn tile_bytes(&self, address: usize) -> [u8;16] {
+    self.data[address..address+16]
+        .try_into()
+        .expect("Tile poza ROM")
+}
 }
