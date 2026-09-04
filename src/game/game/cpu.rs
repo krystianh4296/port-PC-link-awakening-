@@ -486,7 +486,16 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
         let if_reg = memory.read(0xFF0F);
         let ie = memory.read(0xFFFF);
         let pending = if_reg & ie & 0x1F;
-
+        println!(
+            "STEP: PC={:04X} HALTED={} HALT_BUG={} IME={} IF={:02X} IE={:02X} PENDING={:02X}",
+            self.pc,
+            self.halted,
+            self.halt_bug,
+            self.ime,
+            if_reg,
+            ie,
+            pending
+        );
         if self.halted {
             if pending != 0 {
                 self.halted = false;
@@ -1134,17 +1143,29 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
             }
 
             0x76 => {
+                println!(
+                    "HALT EXEC: PC={:04X} IME={} HALTED_BEFORE={} HALT_BUG_BEFORE={}",
+                    self.pc,
+                    self.ime,
+                    self.halted,
+                    self.halt_bug
+                );
                 let if_reg = memory.read(0xFF0F);
                 let ie = memory.read(0xFFFF);
                 let pending = if_reg & ie & 0x1F;
-
+                
                 if !self.ime && pending != 0 {
                     self.halt_bug = true;
                     self.halted = false;
                 } else {
                     self.halted = true;
                 }
-
+                println!(
+                    "HALT EXEC AFTER: PC={:04X} HALTED={} HALT_BUG={}",
+                    self.pc,
+                    self.halted,
+                    self.halt_bug
+                );
                 4
             }
 
@@ -2174,7 +2195,8 @@ fn halt_stops_cpu() {
     memory.write(0xC001, 0x00);
 
     cpu.pc = 0xC000;
-
+    memory.write(0xFF0F, 0x00);
+memory.write(0xFFFF, 0x00);
     // HALT
     let cycles = cpu.step(&mut memory);
 
@@ -2210,7 +2232,8 @@ fn halt_wakes_on_pending_interrupt() {
 
     cpu.pc = 0xC000;
     cpu.sp = 0xC100;
-
+    memory.write(0xFF0F, 0x00);
+    memory.write(0xFFFF, 0x00);
     // HALT
     let cycles = cpu.step(&mut memory);
 
@@ -2687,16 +2710,17 @@ fn halt_wakes_on_pending_interrupt_without_ime() {
     cpu.sp = 0xC100;
     cpu.ime = false;
     cpu.halted = false;
+    cpu.halt_bug = false;
 
-    // HALT
+    // Brak pending interrupt podczas wykonywania HALT.
+    memory.write(0xFF0F, 0x00);
+    memory.write(0xFFFF, 0x00);
+
+    // C000: HALT
     memory.write(0xC000, 0x76);
 
-    // Następna instrukcja po HALT
-    memory.write(0xC001, 0x00); // NOP
-
-    // Timer interrupt pending
-    memory.write(0xFF0F, 0x04);
-    memory.write(0xFFFF, 0x04);
+    // C001: NOP
+    memory.write(0xC001, 0x00);
 
     // 1. Wykonanie HALT
     let cycles = cpu.step(&mut memory);
@@ -2704,16 +2728,21 @@ fn halt_wakes_on_pending_interrupt_without_ime() {
     assert_eq!(cycles, 4);
     assert_eq!(cpu.pc, 0xC001);
     assert!(cpu.halted);
+    assert!(!cpu.halt_bug);
     assert!(!cpu.ime);
 
-    // 2. Pending interrupt budzi CPU,
-    // ale IME=0 oznacza, że interrupt nie jest wykonywany.
+    // Dopiero teraz pojawia się pending interrupt.
+    memory.write(0xFF0F, 0x04);
+    memory.write(0xFFFF, 0x04);
+
+    // 2. Pending interrupt budzi CPU.
+    // IME=0 -> interrupt nie jest obsługiwany.
     let cycles = cpu.step(&mut memory);
 
     assert_eq!(cycles, 4);
     assert!(!cpu.halted);
 
-    // PC nie powinien zostać przeniesiony do wektora 0050.
+    // CPU nie skacze do 0050.
     assert_eq!(cpu.pc, 0xC001);
 
     // IME nadal wyłączone.
@@ -2722,11 +2751,11 @@ fn halt_wakes_on_pending_interrupt_without_ime() {
     // Interrupt nadal pending.
     assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
 
-    // Stos nie powinien zostać zmieniony.
+    // Stos bez zmian.
     assert_eq!(cpu.sp, 0xC100);
 }
 #[test]
-fn halt_bug_does_not_advance_pc_twice() {
+fn halt_bug_reuses_next_opcode_byte() {
     use crate::game::memory::GameMemory;
     use crate::rom::{Cartridge, Rom};
 
@@ -2744,31 +2773,42 @@ fn halt_bug_does_not_advance_pc_twice() {
     cpu.sp = 0xC100;
     cpu.ime = false;
     cpu.halted = false;
+    cpu.halt_bug = false;
 
     // HALT
     memory.write(0xC000, 0x76);
 
-    // Opcode po HALT
-    memory.write(0xC001, 0x00); // NOP
+    // LD A,d8
+    memory.write(0xC001, 0x3E);
 
-    // Interrupt pending jeszcze przed wykonaniem HALT.
+    // wartość, którą normalnie powinno załadować LD A,d8
+    memory.write(0xC002, 0x42);
+
+    // Timer interrupt pending
     memory.write(0xFF0F, 0x04);
     memory.write(0xFFFF, 0x04);
 
-    let cycles = cpu.step(&mut memory);
+    // HALT
+    assert_eq!(cpu.step(&mut memory), 4);
 
-    assert_eq!(cycles, 4);
-
-    // HALT bug: CPU nie powinien wejść w normalny stan halted.
     assert!(!cpu.halted);
-
-    // PC po HALT powinien pozostać na adresie następnej instrukcji.
+    assert!(cpu.halt_bug);
     assert_eq!(cpu.pc, 0xC001);
-
-    // IME pozostaje wyłączone.
     assert!(!cpu.ime);
 
-    // Interrupt nie został obsłużony.
+    // HALT bug:
+    // opcode 3E z C001 zostaje pobrany,
+    // ale PC nie zostaje zwiększony przed execute().
+    //
+    // read_imm8() ponownie odczyta więc C001,
+    // czyli 3E zamiast 42.
+    assert_eq!(cpu.step(&mut memory), 8);
+
+    assert_eq!(cpu.a, 0x3E);
+    assert_eq!(cpu.pc, 0xC002);
+    assert!(!cpu.halt_bug);
+
+    // Interrupt nadal pozostaje pending.
     assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
 }
 }
