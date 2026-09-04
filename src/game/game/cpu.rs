@@ -1216,3 +1216,529 @@ impl Cpu {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cpu() -> Cpu {
+        Cpu::new()
+    }
+
+    fn flags(cpu: &Cpu) -> (bool, bool, bool, bool) {
+        (
+            cpu.f & 0x80 != 0, // Z
+            cpu.f & 0x40 != 0, // N
+            cpu.f & 0x20 != 0, // H
+            cpu.f & 0x10 != 0, // C
+        )
+    }
+
+    #[test]
+    fn add_zero_sets_z() {
+        let mut cpu = cpu();
+
+        cpu.a = 0x00;
+        cpu.f = 0x00;
+        cpu.alu_a(0, 0x00);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(flags(&cpu), (true, false, false, false));
+    }
+
+    #[test]
+    fn add_simple() {
+        let mut cpu = cpu();
+
+        cpu.a = 0x01;
+        cpu.alu_a(0, 0x01);
+
+        assert_eq!(cpu.a, 0x02);
+        assert_eq!(flags(&cpu), (false, false, false, false));
+    }
+
+    #[test]
+    fn add_half_carry() {
+        let mut cpu = cpu();
+
+        cpu.a = 0x0F;
+        cpu.alu_a(0, 0x01);
+
+        assert_eq!(cpu.a, 0x10);
+        assert_eq!(flags(&cpu), (false, false, true, false));
+    }
+
+    #[test]
+    fn add_half_carry_another_case() {
+        let mut cpu = cpu();
+
+        cpu.a = 0x07;
+        cpu.alu_a(0, 0x09);
+
+        assert_eq!(cpu.a, 0x10);
+        assert_eq!(flags(&cpu), (false, false, true, false));
+    }
+
+    #[test]
+    fn add_full_carry_and_zero() {
+        let mut cpu = cpu();
+
+        cpu.a = 0xFF;
+        cpu.alu_a(0, 0x01);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(flags(&cpu), (true, false, true, true));
+    }
+
+    #[test]
+    fn add_carry_without_half_carry() {
+        let mut cpu = cpu();
+
+        cpu.a = 0x80;
+        cpu.alu_a(0, 0x80);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(flags(&cpu), (true, false, false, true));
+    }
+
+    #[test]
+    fn add_upper_nibble_carry_only() {
+        let mut cpu = cpu();
+
+        cpu.a = 0xF0;
+        cpu.alu_a(0, 0x10);
+
+        assert_eq!(cpu.a, 0x00);
+        assert_eq!(flags(&cpu), (true, false, false, true));
+    }
+    #[test]
+fn adc_without_initial_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x01;
+    cpu.f = 0x00; // C=0
+
+    cpu.alu_a(1, 0x01);
+
+    assert_eq!(cpu.a, 0x02);
+    assert_eq!(flags(&cpu), (false, false, false, false));
+}
+
+#[test]
+fn adc_with_initial_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x01;
+    cpu.f = 0x10; // C=1
+
+    cpu.alu_a(1, 0x01);
+
+    assert_eq!(cpu.a, 0x03);
+    assert_eq!(flags(&cpu), (false, false, false, false));
+}
+
+#[test]
+fn adc_half_carry_from_carry_flag() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x0F;
+    cpu.f = 0x10;
+
+    cpu.alu_a(1, 0x00);
+
+    assert_eq!(cpu.a, 0x10);
+    assert_eq!(flags(&cpu), (false, false, true, false));
+}
+
+#[test]
+fn adc_zero_and_full_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0xFF;
+    cpu.f = 0x10;
+
+    cpu.alu_a(1, 0x00);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, false, true, true));
+}
+
+#[test]
+fn adc_half_and_full_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0xFF;
+    cpu.f = 0x00;
+
+    cpu.alu_a(1, 0x01);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, false, true, true));
+}
+
+#[test]
+fn adc_carry_without_half_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x80;
+    cpu.f = 0x10;
+
+    cpu.alu_a(1, 0x7F);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, false, true, true));
+}
+
+#[test]
+fn adc_half_carry_only() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x08;
+    cpu.f = 0x10;
+
+    cpu.alu_a(1, 0x07);
+
+    assert_eq!(cpu.a, 0x10);
+    assert_eq!(flags(&cpu), (false, false, true, false));
+}
+
+#[test]
+fn adc_preserves_no_flags_when_not_needed() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x22;
+    cpu.f = 0x10;
+
+    cpu.alu_a(1, 0x11);
+
+    assert_eq!(cpu.a, 0x34);
+    assert_eq!(flags(&cpu), (false, false, false, false));
+}
+#[test]
+fn sub_simple() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x02;
+    cpu.alu_a(2, 0x01);
+
+    assert_eq!(cpu.a, 0x01);
+    assert_eq!(flags(&cpu), (false, true, false, false));
+}
+
+#[test]
+fn sub_zero() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x01;
+    cpu.alu_a(2, 0x01);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, true, false, false));
+}
+
+#[test]
+fn sub_half_borrow() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x10;
+    cpu.alu_a(2, 0x01);
+
+    assert_eq!(cpu.a, 0x0F);
+    assert_eq!(flags(&cpu), (false, true, true, false));
+}
+
+#[test]
+fn sub_half_borrow_lower_nibble() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x20;
+    cpu.alu_a(2, 0x11);
+
+    assert_eq!(cpu.a, 0x0F);
+    assert_eq!(flags(&cpu), (false, true, true, false));
+}
+
+#[test]
+fn sub_full_borrow() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x00;
+    cpu.alu_a(2, 0x01);
+
+    assert_eq!(cpu.a, 0xFF);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+
+#[test]
+fn sub_full_borrow_without_half_borrow() {
+    let mut cpu = cpu();
+
+    cpu.a = 0xF0;
+    cpu.alu_a(2, 0xF1);
+
+    assert_eq!(cpu.a, 0xFF);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+
+#[test]
+fn sub_no_half_no_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x7F;
+    cpu.alu_a(2, 0x01);
+
+    assert_eq!(cpu.a, 0x7E);
+    assert_eq!(flags(&cpu), (false, true, false, false));
+}
+
+#[test]
+fn sub_half_borrow_boundary() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x11;
+    cpu.alu_a(2, 0x02);
+
+    assert_eq!(cpu.a, 0x0F);
+    assert_eq!(flags(&cpu), (false, true, true, false));
+}
+
+#[test]
+fn sub_zero_from_ff() {
+    let mut cpu = cpu();
+
+    cpu.a = 0xFF;
+    cpu.alu_a(2, 0xFF);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, true, false, false));
+}
+#[test]
+fn sbc_without_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x02;
+    cpu.f = 0x00;
+
+    cpu.alu_a(3, 0x01);
+
+    assert_eq!(cpu.a, 0x01);
+    assert_eq!(flags(&cpu), (false, true, false, false));
+}
+
+#[test]
+fn sbc_with_input_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x02;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0x01);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, true, false, false));
+}
+
+#[test]
+fn sbc_half_borrow_from_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x10;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0x00);
+
+    assert_eq!(cpu.a, 0x0F);
+    assert_eq!(flags(&cpu), (false, true, true, false));
+}
+
+#[test]
+fn sbc_full_borrow_from_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x00;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0x00);
+
+    assert_eq!(cpu.a, 0xFF);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+
+#[test]
+fn sbc_full_borrow_operand() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x00;
+    cpu.f = 0x00;
+
+    cpu.alu_a(3, 0x01);
+
+    assert_eq!(cpu.a, 0xFF);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+
+#[test]
+fn sbc_zero_with_operand_and_carry() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x02;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0x01);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, true, false, false));
+}
+
+#[test]
+fn sbc_half_borrow_boundary() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x11;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0x01);
+
+    assert_eq!(cpu.a, 0x0F);
+    assert_eq!(flags(&cpu), (false, true, true, false));
+}
+
+#[test]
+fn sbc_borrow_with_ff() {
+    let mut cpu = cpu();
+
+    cpu.a = 0xFF;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0xFF);
+
+    assert_eq!(cpu.a, 0xFF);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+
+#[test]
+fn sbc_zero_without_borrow() {
+    let mut cpu = cpu();
+
+    cpu.a = 0xFF;
+    cpu.f = 0x00;
+
+    cpu.alu_a(3, 0xFF);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, true, false, false));
+}
+
+#[test]
+fn sbc_carry_and_half_carry_together() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x80;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0x7F);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (true, true, true, false));
+}
+
+#[test]
+fn sbc_result_fe() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x00;
+    cpu.f = 0x10;
+
+    cpu.alu_a(3, 0x01);
+
+    assert_eq!(cpu.a, 0xFE);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+#[test]
+fn cp_equal() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x05;
+    cpu.alu_a(7, 0x05);
+
+    assert_eq!(cpu.a, 0x05);
+    assert_eq!(flags(&cpu), (true, true, false, false));
+}
+
+#[test]
+fn cp_less_than_operand() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x00;
+    cpu.alu_a(7, 0x01);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+
+#[test]
+fn cp_greater_than_operand() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x05;
+    cpu.alu_a(7, 0x01);
+
+    assert_eq!(cpu.a, 0x05);
+    assert_eq!(flags(&cpu), (false, true, false, false));
+}
+
+#[test]
+fn cp_half_borrow() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x10;
+    cpu.alu_a(7, 0x01);
+
+    assert_eq!(cpu.a, 0x10);
+    assert_eq!(flags(&cpu), (false, true, true, false));
+}
+
+#[test]
+fn cp_full_borrow() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x00;
+    cpu.alu_a(7, 0x01);
+
+    assert_eq!(cpu.a, 0x00);
+    assert_eq!(flags(&cpu), (false, true, true, true));
+}
+
+#[test]
+fn cp_ff_equal_ff() {
+    let mut cpu = cpu();
+
+    cpu.a = 0xFF;
+    cpu.alu_a(7, 0xFF);
+
+    assert_eq!(cpu.a, 0xFF);
+    assert_eq!(flags(&cpu), (true, true, false, false));
+}
+
+#[test]
+fn cp_does_not_modify_a() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x42;
+    cpu.alu_a(7, 0x99);
+
+    assert_eq!(cpu.a, 0x42);
+}
+
+#[test]
+fn cp_clears_old_flags() {
+    let mut cpu = cpu();
+
+    cpu.a = 0x20;
+    cpu.f = 0xB0; // Z N H C = 1,1,1,0
+
+    cpu.alu_a(7, 0x10);
+
+    assert_eq!(cpu.a, 0x20);
+    assert_eq!(flags(&cpu), (false, true, false, false));
+}
+}
