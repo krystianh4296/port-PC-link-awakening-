@@ -2782,4 +2782,158 @@ fn halt_bug_reuses_next_opcode_byte() {
     // Interrupt nadal pozostaje pending.
     assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
 }
+#[test]
+fn cpu_cycles_drive_timer() {
+        use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+    let rom_path = std::env::var("GAMEBOY_ROM")
+        .expect("GAMEBOY_ROM must point to a .gb/.gbc ROM");
+
+    let rom = Rom::load(rom_path).expect("failed to load test ROM");
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+    cpu.reset();
+
+    // Timer: 262144 Hz = jeden increment TIMA co 16 T-cycles.
+    memory.write(0xFF05, 0x00);
+    memory.write(0xFF07, 0x05);
+
+    let cycles = cpu.step(&mut memory);
+    memory.step(cycles);
+
+    assert_eq!(
+        memory.read(0xFF05),
+        match cycles {
+            4 => 0x00,
+            8 => 0x00,
+            12 => 0x00,
+            16 => 0x01,
+            20 => 0x01,
+            _ => panic!("unexpected CPU cycle count: {cycles}"),
+        }
+    );
+}
+#[test]
+fn vblank_interrupt_from_ppu_reaches_cpu() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")
+        .expect("Nie można załadować ROM-u testowego");
+
+    let cartridge = Cartridge::new(rom);
+    let mut memory = GameMemory::new(cartridge);
+
+    let mut cpu = Cpu::new();
+
+    cpu.pc = 0xC001;
+    cpu.sp = 0xC100;
+    cpu.ime = true;
+
+    // Włącz VBlank interrupt
+    memory.write(0xFFFF, 0x01);
+
+    // PPU dochodzi do LY=144
+    memory.step(456 * 144);
+
+    assert_eq!(memory.read(0xFF44), 144);
+    assert_eq!(memory.read(0xFF0F) & 0x01, 0x01);
+
+    // CPU obsługuje VBlank
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0x0040);
+    assert!(!cpu.ime);
+
+    // IF.0 musi zostać wyczyszczone
+    assert_eq!(memory.read(0xFF0F) & 0x01, 0);
+
+    // CPU.PC = C001 powinno zostać odłożone na stos
+    assert_eq!(cpu.sp, 0xC0FE);
+    assert_eq!(memory.read(0xC0FE), 0x01);
+    assert_eq!(memory.read(0xC0FF), 0xC0);
+}
+#[test]
+fn serial_interrupt_jumps_to_0058() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+    let mut memory = GameMemory::new(Cartridge::new(
+        Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")
+            .expect("Nie można załadować ROM-u testowego"),
+    ));
+    let mut cpu = Cpu::new();
+
+    // Włącz Serial interrupt.
+    memory.write(0xFFFF, 0x08);
+
+    // Rozpocznij transmisję.
+    memory.write(0xFF01, 0x55);
+    memory.write(0xFF02, 0x81);
+
+    // Transmisja kończy się po 4096 T-cycles.
+    memory.step(4096);
+
+    // IF.3 powinien być ustawiony.
+    assert_eq!(memory.read(0xFF0F) & 0x08, 0x08);
+
+    cpu.ime = true;
+    cpu.pc = 0x1234;
+    cpu.sp = 0xFFFE;
+
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0x0058);
+    assert!(!cpu.ime);
+
+    // IF.3 wyczyszczone po obsłużeniu przerwania.
+    assert_eq!(memory.read(0xFF0F) & 0x08, 0);
+
+    // Poprzedni PC zapisany na stosie.
+    assert_eq!(memory.read(0xFFFC), 0x34);
+    assert_eq!(memory.read(0xFFFD), 0x12);
+}
+#[test]
+fn joypad_interrupt_jumps_to_0060() {
+    use crate::game::memory::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    let mut memory = GameMemory::new(Cartridge::new(
+        Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")
+            .expect("Nie można załadować ROM-u testowego"),
+    ));
+
+    let mut cpu = Cpu::new();
+
+    // Włącz Joypad interrupt.
+    memory.write(0xFFFF, 0x10);
+
+    // Zasymuluj naciśnięcie przycisku.
+    memory.joypad_button_pressed(0);
+
+    // Przekaż żądanie Joypada do InterruptController.
+    memory.step(1);
+
+    assert_eq!(memory.read(0xFF0F) & 0x10, 0x10);
+
+    cpu.ime = true;
+    cpu.pc = 0x1234;
+    cpu.sp = 0xFFFE;
+
+    let cycles = cpu.step(&mut memory);
+
+    assert_eq!(cycles, 20);
+    assert_eq!(cpu.pc, 0x0060);
+    assert!(!cpu.ime);
+
+    // IF.4 wyczyszczone.
+    assert_eq!(memory.read(0xFF0F) & 0x10, 0);
+
+    // Poprzedni PC na stosie.
+    assert_eq!(memory.read(0xFFFC), 0x34);
+    assert_eq!(memory.read(0xFFFD), 0x12);
+}
 }
