@@ -11,7 +11,7 @@ const TARGET_FPS: u32 = 60;
 const FRAME_TIME: Duration =
     Duration::from_nanos(1_000_000_000 / TARGET_FPS as u64);
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")?;
 
     let bytes = rom.tile_bytes(0x8000);
@@ -94,7 +94,11 @@ fn main() {
             std::thread::sleep(FRAME_TIME - elapsed);
         }
     }
-    pub fn print_ascii(tile:&Tile){
+        print_ascii(&tile);
+
+Ok(())
+}
+pub fn print_ascii(tile:&Tile){
     for y in 0..8{
         for x in 0..8{
             let c = match tile.pixel(x,y){
@@ -107,5 +111,4 @@ fn main() {
         }
         println!();
     }
-}
 }
