@@ -128,14 +128,22 @@ impl Ppu {
 
     pub fn background_tile_index(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
         let map_offset = (map_base - 0x8000) as usize;
-        let tile_x = ((bg_x as usize) & 0xFF) >> 3;
-        let tile_y = ((bg_y as usize) & 0xFF) >> 3;
+        let tile_x = (bg_x as usize) >> 3;
+        let tile_y = (bg_y as usize) >> 3;
         vram[map_offset + tile_y * 32 + tile_x]
     }
 
     pub fn background_tile_data(vram: &[u8; 0x2000], tile_index: u8, base: u16) -> [u8; 16] {
-        let address = if base == 0x8000 { 0x8000u16 + tile_index as u16 * 16 } else { (0x9000i32 + tile_index as i8 as i32 * 16) as u16 };
-        let offset = (address - 0x8000) as usize; let mut tile = [0; 16]; tile.copy_from_slice(&vram[offset..offset + 16]); tile
+        let address = if base == 0x8000 {
+            0x8000usize + tile_index as usize * 16
+        } else {
+            let signed_index = tile_index as i8 as isize;
+            (0x9000isize + signed_index * 16) as usize
+        };
+        let offset = address - 0x8000;
+        let mut tile = [0; 16];
+        tile.copy_from_slice(&vram[offset..offset + 16]);
+        tile
     }
 
     pub fn decode_tile_row(tile: &[u8; 16], row: usize) -> [u8; 8] {
@@ -143,9 +151,7 @@ impl Ppu {
         let hi = tile[row * 2 + 1];
         std::array::from_fn(|x| {
             let bit = 7 - x;
-            let low_bit = (lo >> bit) & 1;
-            let high_bit = (hi >> bit) & 1;
-            (high_bit << 1) | low_bit
+            ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1)
         })
     }
 
@@ -169,8 +175,8 @@ impl Ppu {
         let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
 
-        // Calculate the wrapped 256x256 BG coordinate first. This makes SCX
-        // and SCY affect both tile selection and the pixel/row inside the tile.
+        // The Game Boy BG is a 256x256 surface. SCX/SCY are applied before
+        // selecting the tile and the pixel within that tile, then wrapped.
         for x in 0..160usize {
             let bg_x = (x + self.scx as usize) & 0xFF;
             let bg_y = (y as usize + self.scy as usize) & 0xFF;
@@ -178,11 +184,14 @@ impl Ppu {
             let tile_y = bg_y >> 3;
             let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
 
+            // CGB tile numbers always come from VRAM bank 0. The attribute
+            // map in bank 1 selects the tile's palette, bank and flips.
             let tile_index = vram0[map_index];
             let attr = vram1[map_index];
             let (palette, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
             let tile_vram = if bank { vram1 } else { vram0 };
             let tile = Self::background_tile_data(tile_vram, tile_index, base);
+
             let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
             let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
             let ci = Self::decode_tile_row(&tile, row)[px];
