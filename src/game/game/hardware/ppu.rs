@@ -307,14 +307,20 @@ impl Ppu {
 
     pub fn render_background_scanline(
         &self,
-        vram: &[u8; 0x2000],
+        vram_bank_0: &[u8; 0x2000],
+        vram_bank_1: &[u8; 0x2000],
     ) -> [u8; 160] {
-        self.render_background_scanline_at(vram, self.ly)
+        self.render_background_scanline_at(
+            vram_bank_0,
+            vram_bank_1,
+            self.ly,
+        )
     }
 
     pub fn render_background_scanline_at(
         &self,
-        vram: &[u8; 0x2000],
+        vram_bank_0: &[u8; 0x2000],
+        vram_bank_1: &[u8; 0x2000],
         screen_y: u8,
     ) -> [u8; 160] {
         let mut pixels = [0u8; 160];
@@ -338,24 +344,48 @@ impl Ppu {
             let bg_x = screen_x.wrapping_add(self.scx);
 
             let tile_index = Self::background_tile_index(
-                vram,
+                vram_bank_0,
                 bg_x,
                 bg_y,
                 map_base,
             );
 
+            let attributes = Self::background_tile_attributes(
+                vram_bank_1,
+                bg_x,
+                bg_y,
+                map_base,
+            );
+
+            let (_palette, vram_bank, flip_x, flip_y, _priority) =
+                Self::background_tile_attribute_info(attributes);
+
+            let tile_vram = if vram_bank {
+                vram_bank_1
+            } else {
+                vram_bank_0
+            };
+
             let tile = Self::background_tile_data(
-                vram,
+                tile_vram,
                 tile_index,
                 tile_data_base,
             );
 
-            let row = (bg_y & 0x07) as usize;
-            let pixel_x = (bg_x & 0x07) as usize;
+            let row = if flip_y {
+                7 - (bg_y & 0x07) as usize
+            } else {
+                (bg_y & 0x07) as usize
+            };
+
+            let pixel_x = if flip_x {
+                7 - (bg_x & 0x07) as usize
+            } else {
+                (bg_x & 0x07) as usize
+            };
+
             let row_pixels = Self::decode_tile_row(&tile, row);
 
-            // CGB renderer returns the raw 2-bit tile color index here.
-            // Palette selection is applied later using VRAM bank 1 attributes.
             pixels[screen_x as usize] = row_pixels[pixel_x];
         }
 
@@ -364,12 +394,18 @@ impl Ppu {
 
     pub fn render_background_frame(
         &self,
-        vram: &[u8; 0x2000],
+        vram_bank_0: &[u8; 0x2000],
+        vram_bank_1: &[u8; 0x2000],
     ) -> [u8; 160 * 144] {
         let mut frame = [0u8; 160 * 144];
 
         for y in 0..144 {
-            let line = self.render_background_scanline_at(vram, y as u8);
+            let line = self.render_background_scanline_at(
+                vram_bank_0,
+                vram_bank_1,
+                y as u8,
+            );
+
             let start = y * 160;
             let end = start + 160;
             frame[start..end].copy_from_slice(&line);
@@ -412,6 +448,17 @@ impl Ppu {
     let map_offset = (map_base - 0x8000) as usize;
     let index = map_offset + tile_y * 32 + tile_x;
     vram_bank_1[index]
+}
+pub fn background_tile_attribute_info(
+    attributes: u8,
+) -> (u8, bool, bool, bool, bool) {
+    let palette = attributes & 0x07;
+    let vram_bank = attributes & 0x08 != 0;
+    let flip_x = attributes & 0x20 != 0;
+    let flip_y = attributes & 0x40 != 0;
+    let priority = attributes & 0x80 != 0;
+
+    (palette, vram_bank, flip_x, flip_y, priority)
 }
 }
 
@@ -630,7 +677,7 @@ mod tests {
         vram[1] = 0b00110011;
         vram[0x1800] = 0;
 
-        let pixels = ppu.render_background_scanline(&vram);
+        let pixels = ppu.render_background_scanline(&vram, &vram);
         assert_eq!(&pixels[0..8], &[0, 1, 2, 3, 0, 1, 2, 3]);
     }
 
@@ -648,7 +695,7 @@ mod tests {
         vram[0x1800] = 0;
         vram[0x1801] = 1;
 
-        let pixels = ppu.render_background_scanline(&vram);
+        let pixels = ppu.render_background_scanline(&vram, &vram);
         assert_eq!(&pixels[0..4], &[0, 0, 0, 0]);
         assert_eq!(&pixels[4..12], &[3, 3, 3, 3, 3, 3, 3, 3]);
     }
@@ -666,7 +713,7 @@ mod tests {
         vram[0x1800] = 0;
         vram[0x1801] = 1;
 
-        let frame = ppu.render_background_frame(&vram);
+        let frame = ppu.render_background_frame(&vram, &vram);
         assert_eq!(frame.len(), 160 * 144);
         assert_eq!(&frame[0..4], &[0, 0, 0, 0]);
         assert_eq!(&frame[8..16], &[3, 3, 3, 3, 3, 3, 3, 3]);
@@ -711,16 +758,37 @@ mod tests {
         ppu.write(0xFF68, 2);
         assert_eq!(ppu.read(0xFF69), 0x33);
     }
-    #[test]
+#[test]
 fn background_tile_attributes_reads_bank_1() {
     let mut vram = [0u8; 0x2000];
 
+    // BG map 0x9800, tile position X=5, Y=3.
     let offset = 0x1800 + 3 * 32 + 5;
+
     vram[offset] = 0b1110_0111;
 
     let attributes =
-        Ppu::background_tile_attributes(&vram, 5 * 8, 3 * 8, 0x9800);
+        Ppu::background_tile_attributes(
+            &vram,
+            5 * 8,
+            3 * 8,
+            0x9800,
+        );
 
     assert_eq!(attributes, 0b1110_0111);
 }
+#[test]
+fn background_tile_attribute_info_decodes_cgb_attributes() {
+    let attributes = 0b1110_1101;
+
+    let (palette, vram_bank, flip_x, flip_y, priority) =
+        Ppu::background_tile_attribute_info(attributes);
+
+    assert_eq!(palette, 0b101);
+    assert!(vram_bank);
+    assert!(flip_x);
+    assert!(flip_y);
+    assert!(priority);
+}
+
 }

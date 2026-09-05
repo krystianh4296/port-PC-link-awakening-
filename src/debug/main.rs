@@ -14,7 +14,6 @@ use audio::Audio;
 use bus::Bus;
 use cpu::Cpu;
 use debug::{ConsoleCommand, DebugConsole, Debugger};
-use debug_snapshot::{DebugSnapshot, DiffOptions};
 use minifb::{Key, Window, WindowOptions};
 use savestate::{SaveState, load_from_file, save_to_file};
 use std::env;
@@ -375,7 +374,7 @@ let mut memory_watch: Option<MemoryWatch> = None;    let mut buffer = vec![0u32;
                 )
                 .expect("Błąd aktualizacji okna VRAM");
 
-            let now = Instant::now();
+            let _now = Instant::now();
 
             let now = Instant::now();
 
@@ -467,6 +466,7 @@ mod savestate_tests {
 #[cfg(test)]
 mod debug_snapshot_tests {
     use super::*;
+    use crate::debug_snapshot::{DebugSnapshot, DiffOptions};
 
     #[test]
     fn debug_snapshot_capture_works() {
