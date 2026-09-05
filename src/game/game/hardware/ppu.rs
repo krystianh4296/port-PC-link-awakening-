@@ -6,6 +6,10 @@ pub struct Ppu {
 
     stat: u8,
 
+    scx: u8,
+    scy: u8,
+    bgp: u8,
+
     cycle_counter: u32,
     mode: u8,
 
@@ -22,6 +26,9 @@ impl Ppu {
             lyc: 0,
             lcdc: 0x91,
             stat: 0x80,
+            scx: 0,
+            scy: 0,
+            bgp: 0xFC,
 
             cycle_counter: 0,
             mode: 2,
@@ -155,8 +162,11 @@ impl Ppu {
         match address {
             0xFF40 => self.lcdc,
             0xFF41 => self.stat | 0x80,
+            0xFF42 => self.scy,
+            0xFF43 => self.scx,
             0xFF44 => self.ly,
             0xFF45 => self.lyc,
+            0xFF47 => self.bgp,
             _ => 0xFF,
         }
     }
@@ -201,6 +211,11 @@ impl Ppu {
                 self.stat = (self.stat & 0x07) | (value & 0x78) | 0x80;
                 self.update_stat_interrupt();
             }
+            0xFF42 => self.scy = value,
+
+            0xFF43 => self.scx = value,
+
+            0xFF47 => self.bgp = value,
 
             0xFF45 => {
                 self.lyc = value;
@@ -235,7 +250,14 @@ impl Ppu {
     pub fn mode(&self) -> u8 {
         self.mode
     }
+    pub fn background_pixel_position(&self, screen_x: u8) -> (u8, u8) {
+    (
+        screen_x.wrapping_add(self.scx),
+        self.ly.wrapping_add(self.scy),
+    )
 }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -392,5 +414,17 @@ fn lcd_enable_restarts_ppu() {
     ppu.step(80);
 
     assert_eq!(ppu.mode(), 3);
+}
+#[test]
+fn scx_scy_scroll_wraps_background_coordinates() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF42, 250);
+    ppu.write(0xFF43, 252);
+
+    ppu.ly = 10;
+
+    assert_eq!(ppu.background_pixel_position(0), (252, 4));
+    assert_eq!(ppu.background_pixel_position(8), (4, 4));
 }
 }

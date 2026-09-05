@@ -278,4 +278,14 @@ fn lcdc_bits_are_preserved() {
     ppu.write(0xFF40, 0xFF);
     assert_eq!(ppu.read(0xFF40), 0xFF);
 }
+#[test]
+fn scroll_registers_affect_ppu_state() {
+    let mut memory = test_memory();
+
+    memory.write(0xFF42, 32);
+    memory.write(0xFF43, 64);
+
+    assert_eq!(memory.read(0xFF42), 32);
+    assert_eq!(memory.read(0xFF43), 64);
+}
 }
