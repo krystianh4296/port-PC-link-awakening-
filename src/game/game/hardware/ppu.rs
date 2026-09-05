@@ -110,7 +110,7 @@ impl Ppu {
             0xFF43 => self.scx = value,
             0xFF45 => { self.lyc = value; self.update_lyc_flag(); self.update_stat_interrupt(); }
             0xFF47 => self.bgp = value, 0xFF4A => self.wy = value, 0xFF4B => self.wx = value,
-            0xFF68 => self.bgpi,
+            0xFF68 => self.bgpi = value,
             0xFF69 => { let i = (self.bgpi & 0x3F) as usize; self.bg_palette_ram[i] = value; if self.bgpi & 0x80 != 0 { self.bgpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
             0xFF6A => self.obpi = value,
             0xFF6B => { let i = (self.obpi & 0x3F) as usize; self.obj_palette_ram[i] = value; if self.obpi & 0x80 != 0 { self.obpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
@@ -159,15 +159,10 @@ impl Ppu {
         let mut out = [0u32; 160];
         let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
-
-        // SCX/SCY address the 256x256-pixel BG space. u8 wrapping is
-        // intentional: coordinates 0xFF + 1 become 0x00.
-        let scx = self.scx;
-        let scy = self.scy;
-        let by = y.wrapping_add(scy);
+        let by = y.wrapping_add(self.scy);
 
         for x in 0..160usize {
-            let bx = (x as u8).wrapping_add(scx);
+            let bx = (x as u8).wrapping_add(self.scx);
             let tile_index = Self::background_tile_index(vram0, bx, by, map);
             let attr = Self::background_tile_attributes(vram1, bx, by, map);
             let (palette, bank, fx, fy, _) = Self::background_tile_attribute_info(attr);
