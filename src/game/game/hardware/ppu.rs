@@ -287,6 +287,25 @@ impl Ppu {
 
         vram[index]
     }
+    pub fn background_tile_data(
+    vram: &[u8; 0x2000],
+    tile_index: u8,
+    tile_data_base: u16,
+) -> [u8; 16] {
+    let tile_address = if tile_data_base == 0x8000 {
+        tile_data_base.wrapping_add((tile_index as u16) * 16)
+    } else {
+        let signed_index = tile_index as i8 as i16;
+        (tile_data_base as i16 + signed_index * 16) as u16
+    };
+
+    let offset = (tile_address - 0x8000) as usize;
+
+    let mut tile = [0u8; 16];
+    tile.copy_from_slice(&vram[offset..offset + 16]);
+
+    tile
+}
 }
 
 
@@ -527,6 +546,75 @@ fn background_tile_index_supports_second_tile_map() {
     assert_eq!(
         Ppu::background_tile_index(&vram, 56, 40, 0x9C00),
         0xA3
+    );
+}
+#[test]
+fn background_tile_data_uses_8000_mode() {
+    let mut vram = [0u8; 0x2000];
+
+    let offset = 3 * 16;
+
+    for i in 0..16 {
+        vram[offset + i] = i as u8;
+    }
+
+    let tile = Ppu::background_tile_data(
+        &vram,
+        3,
+        0x8000,
+    );
+
+    assert_eq!(tile, [
+        0, 1, 2, 3,
+        4, 5, 6, 7,
+        8, 9, 10, 11,
+        12, 13, 14, 15,
+    ]);
+}
+#[test]
+fn background_tile_data_uses_signed_8800_mode() {
+    let mut vram = [0u8; 0x2000];
+
+    // tile_index = 0xFF = -1
+    // $9000 + (-1 * 16) = $8FF0
+    let offset = 0x0FF0;
+
+    for i in 0..16 {
+        vram[offset + i] = 0xA0 + i as u8;
+    }
+
+    let tile = Ppu::background_tile_data(
+        &vram,
+        0xFF,
+        0x9000,
+    );
+
+    assert_eq!(tile, [
+        0xA0, 0xA1, 0xA2, 0xA3,
+        0xA4, 0xA5, 0xA6, 0xA7,
+        0xA8, 0xA9, 0xAA, 0xAB,
+        0xAC, 0xAD, 0xAE, 0xAF,
+    ]);
+}
+#[test]
+fn background_tile_data_decodes_row() {
+    let mut vram = [0u8; 0x2000];
+
+    let offset = 2 * 16;
+
+    // row 0 = kolory 0,1,2,3,0,1,2,3
+    vram[offset] = 0b01010101;
+    vram[offset + 1] = 0b00110011;
+
+    let tile = Ppu::background_tile_data(
+        &vram,
+        2,
+        0x8000,
+    );
+
+    assert_eq!(
+        Ppu::decode_tile_row(&tile, 0),
+        [0, 1, 2, 3, 0, 1, 2, 3]
     );
 }
 }
