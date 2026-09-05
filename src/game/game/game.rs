@@ -18,8 +18,13 @@ impl Game {
     }
 
     pub fn update(&mut self, _input: &Input, _delta_time: f32) {
-        let cycles = self.cpu.step(&mut self.memory);
-        self.memory.step(cycles);
+        // Jedno wywołanie update() emuluje dokładnie jedną klatkę.
+        // CPU wykonuje instrukcje, a zwrócone cykle napędzają PPU, timer
+        // i pozostałe elementy sprzętowe przez GameMemory::step().
+        while !self.memory.frame_ready() {
+            let cycles = self.cpu.step(&mut self.memory);
+            self.memory.step(cycles);
+        }
     }
 
     pub fn is_running(&self) -> bool { self.running }
