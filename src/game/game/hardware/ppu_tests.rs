@@ -172,8 +172,9 @@ fn background_map_tile_80_uses_vram_8800_in_unsigned_mode() {
     // The game's BG map starts with tile 0x80. In unsigned tile mode,
     // tile 0x80 must resolve to VRAM address 0x8800.
     vram0[0x1800] = 0x80;
-    vram0[0x1000] = 0xFF;
-    vram0[0x1001] = 0x00;
+    // 0x8800 - 0x8000 = 0x0800.
+    vram0[0x0800] = 0xFF;
+    vram0[0x0801] = 0x00;
 
     assert_eq!(Ppu::background_tile_index(&vram0, 0, 0, 0x9800), 0x80);
 
