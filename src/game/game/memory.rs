@@ -23,6 +23,8 @@ pub struct GameMemory {
     vram_nonzero_write_count: u64,
     bg_map_write_count: u64,
     oam_write_count: u64,
+    ppu_register_write_count: u64,
+    vram_bank_write_count: u64,
     vram_first_writes_logged: u8,
     last_vram_write: Option<(u16, u8, u8)>,
 }
@@ -46,6 +48,8 @@ impl GameMemory {
             vram_nonzero_write_count: 0,
             bg_map_write_count: 0,
             oam_write_count: 0,
+            ppu_register_write_count: 0,
+            vram_bank_write_count: 0,
             vram_first_writes_logged: 0,
             last_vram_write: None,
         }
@@ -54,17 +58,9 @@ impl GameMemory {
     pub fn cartridge(&self) -> &Cartridge { &self.cartridge }
     pub fn cartridge_mut(&mut self) -> &mut Cartridge { &mut self.cartridge }
 
-    pub fn framebuffer(&self) -> &[u32; 160 * 144] {
-        self.ppu.framebuffer()
-    }
-
-    pub fn frame_ready(&self) -> bool {
-        self.ppu.frame_ready()
-    }
-
-    pub fn take_frame_ready(&mut self) -> bool {
-        self.ppu.take_frame_ready()
-    }
+    pub fn framebuffer(&self) -> &[u32; 160 * 144] { self.ppu.framebuffer() }
+    pub fn frame_ready(&self) -> bool { self.ppu.frame_ready() }
+    pub fn take_frame_ready(&mut self) -> bool { self.ppu.take_frame_ready() }
 
     pub fn read(&self, address: u16) -> u8 {
         match address {
@@ -87,7 +83,7 @@ impl GameMemory {
             0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F |
             0xFF70..=0xFF7F => self.io[(address - 0xFF00) as usize],
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize],
-            0xFFFF => self.interrupt.read_ie(),
+            0xFFFF => self.interrupt.read_ie(value),
         }
     }
 
@@ -99,22 +95,15 @@ impl GameMemory {
                 self.vram[bank][(address - 0x8000) as usize] = value;
 
                 self.vram_write_count += 1;
-                if value != 0 {
-                    self.vram_nonzero_write_count += 1;
-                }
-                if address >= 0x9800 {
-                    self.bg_map_write_count += 1;
-                }
+                if value != 0 { self.vram_nonzero_write_count += 1; }
+                if address >= 0x9800 { self.bg_map_write_count += 1; }
                 self.last_vram_write = Some((address, value, bank as u8));
 
                 if self.vram_first_writes_logged < 50 {
                     self.vram_first_writes_logged += 1;
                     println!(
                         "VRAM WRITE #{}: addr={:04X} value={:02X} bank={}",
-                        self.vram_first_writes_logged,
-                        address,
-                        value,
-                        bank
+                        self.vram_first_writes_logged, address, value, bank
                     );
                 }
             }
@@ -132,8 +121,14 @@ impl GameMemory {
                 if self.timer.take_interrupt() { self.interrupt.request(2); }
             }
             0xFF0F => self.interrupt.write_if(value),
-            0xFF40..=0xFF47 | 0xFF68 | 0xFF69 | 0xFF6A | 0xFF6B => self.ppu.write(address, value),
-            0xFF4F => self.vram_bank = value & 0x01,
+            0xFF40..=0xFF47 | 0xFF68 | 0xFF69 | 0xFF6A | 0xFF6B => {
+                self.ppu_register_write_count += 1;
+                self.ppu.write(address, value);
+            }
+            0xFF4F => {
+                self.vram_bank_write_count += 1;
+                self.vram_bank = value & 0x01;
+            }
             0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF3F |
             0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F |
             0xFF70..=0xFF7F => self.io[(address - 0xFF00) as usize] = value,
@@ -170,10 +165,7 @@ impl GameMemory {
     }
 
     pub fn background_tile_attributes(
-        vram_bank_1: &[u8; 0x2000],
-        bg_x: u8,
-        bg_y: u8,
-        map_base: u16,
+        vram_bank_1: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16,
     ) -> u8 {
         let tile_x = (bg_x / 8) as usize;
         let tile_y = (bg_y / 8) as usize;
@@ -187,10 +179,11 @@ impl GameMemory {
         println!("VRAM NONZERO WRITES: {}", self.vram_nonzero_write_count);
         println!("BG MAP WRITES (9800-9FFF): {}", self.bg_map_write_count);
         println!("OAM WRITES: {}", self.oam_write_count);
+        println!("PPU REGISTER WRITES (FF40-FF47, FF68-FF6B): {}", self.ppu_register_write_count);
+        println!("VRAM BANK SELECT WRITES (FF4F): {}", self.vram_bank_write_count);
         match self.last_vram_write {
             Some((address, value, bank)) => println!(
-                "LAST VRAM WRITE: addr={:04X} value={:02X} bank={}",
-                address, value, bank
+                "LAST VRAM WRITE: addr={:04X} value={:02X} bank={}", address, value, bank
             ),
             None => println!("LAST VRAM WRITE: none"),
         }
