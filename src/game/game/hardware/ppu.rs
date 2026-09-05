@@ -15,6 +15,7 @@ pub struct Ppu {
     obj_palette_ram: [u8; 64],
     bgpi: u8,
     obpi: u8,
+    bgp: u8,
     cycle_counter: u32,
     mode: u8,
     vblank_interrupt: bool,
@@ -24,12 +25,22 @@ pub struct Ppu {
 
 impl Ppu {
     pub fn new() -> Self {
+        // Keep palette 0 visible before the CGB game writes its own palette.
+        // RGB555: white, light gray, dark gray, black.
+        let mut bg_palette_ram = [0u8; 64];
+        let default_palette = [0x7FFFu16, 0x56B5u16, 0x294Au16, 0x0000u16];
+        for (i, color) in default_palette.iter().enumerate() {
+            bg_palette_ram[i * 2] = *color as u8;
+            bg_palette_ram[i * 2 + 1] = (*color >> 8) as u8;
+        }
+
         Self {
             ly: 0, lyc: 0, lcdc: 0x91, stat: 0x80,
             scx: 0, scy: 0, wx: 0, wy: 0, window_line: 0,
             framebuffer: [0xFF000000; 160 * 144], frame_ready: false,
-            bg_palette_ram: [0; 64], obj_palette_ram: [0; 64],
-            bgpi: 0, obpi: 0, cycle_counter: 0, mode: 2,
+            bg_palette_ram, obj_palette_ram: [0; 64],
+            bgpi: 0, obpi: 0, bgp: 0xFC,
+            cycle_counter: 0, mode: 2,
             vblank_interrupt: false, stat_interrupt: false, stat_irq_line: false,
         }
     }
@@ -102,7 +113,8 @@ impl Ppu {
         match address {
             0xFF40 => self.lcdc, 0xFF41 => self.stat | 0x80,
             0xFF42 => self.scy, 0xFF43 => self.scx, 0xFF44 => self.ly,
-            0xFF45 => self.lyc, 0xFF4A => self.wy, 0xFF4B => self.wx,
+            0xFF45 => self.lyc, 0xFF47 => self.bgp,
+            0xFF4A => self.wy, 0xFF4B => self.wx,
             0xFF68 => self.bgpi, 0xFF69 => self.bg_palette_ram[(self.bgpi & 0x3F) as usize],
             0xFF6A => self.obpi, 0xFF6B => self.obj_palette_ram[(self.obpi & 0x3F) as usize],
             _ => 0xFF,
@@ -120,6 +132,7 @@ impl Ppu {
             0xFF41 => { self.stat = (self.stat & 0x07) | (value & 0x78) | 0x80; self.update_stat_interrupt(); }
             0xFF42 => self.scy = value, 0xFF43 => self.scx = value,
             0xFF45 => { self.lyc = value; self.update_lyc_flag(); self.update_stat_interrupt(); }
+            0xFF47 => self.bgp = value,
             0xFF4A => self.wy = value, 0xFF4B => self.wx = value,
             0xFF68 => self.bgpi = value,
             0xFF69 => { let i = (self.bgpi & 0x3F) as usize; self.bg_palette_ram[i] = value; if self.bgpi & 0x80 != 0 { self.bgpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
@@ -171,7 +184,8 @@ impl Ppu {
 
     pub fn background_palette_color(&self, palette: u8, index: u8) -> u32 {
         let base = palette as usize * 8 + index as usize * 2;
-        Self::cgb_rgb555_to_argb(self.bg_palette_ram[base] as u16 | (self.bg_palette_ram[base + 1] as u16) << 8)
+        let color = self.bg_palette_ram[base] as u16 | (self.bg_palette_ram[base + 1] as u16) << 8;
+        Self::cgb_rgb555_to_argb(color)
     }
 
     pub fn render_background_scanline_cgb(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], y: u8) -> [u32; 160] {
