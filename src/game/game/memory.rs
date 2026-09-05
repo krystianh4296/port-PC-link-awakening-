@@ -19,6 +19,12 @@ pub struct GameMemory {
     ppu: Ppu,
     serial: Serial,
     joypad: Joypad,
+    vram_write_count: u64,
+    vram_nonzero_write_count: u64,
+    bg_map_write_count: u64,
+    oam_write_count: u64,
+    vram_first_writes_logged: u8,
+    last_vram_write: Option<(u16, u8, u8)>,
 }
 
 impl GameMemory {
@@ -36,6 +42,12 @@ impl GameMemory {
             ppu: Ppu::new(),
             serial: Serial::new(),
             joypad: Joypad::new(),
+            vram_write_count: 0,
+            vram_nonzero_write_count: 0,
+            bg_map_write_count: 0,
+            oam_write_count: 0,
+            vram_first_writes_logged: 0,
+            last_vram_write: None,
         }
     }
 
@@ -85,10 +97,33 @@ impl GameMemory {
             0x8000..=0x9FFF => {
                 let bank = (self.vram_bank & 0x01) as usize;
                 self.vram[bank][(address - 0x8000) as usize] = value;
+
+                self.vram_write_count += 1;
+                if value != 0 {
+                    self.vram_nonzero_write_count += 1;
+                }
+                if address >= 0x9800 {
+                    self.bg_map_write_count += 1;
+                }
+                self.last_vram_write = Some((address, value, bank as u8));
+
+                if self.vram_first_writes_logged < 50 {
+                    self.vram_first_writes_logged += 1;
+                    println!(
+                        "VRAM WRITE #{}: addr={:04X} value={:02X} bank={}",
+                        self.vram_first_writes_logged,
+                        address,
+                        value,
+                        bank
+                    );
+                }
             }
             0xC000..=0xDFFF => self.wram[(address - 0xC000) as usize] = value,
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize] = value,
-            0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize] = value,
+            0xFE00..=0xFE9F => {
+                self.oam[(address - 0xFE00) as usize] = value;
+                self.oam_write_count += 1;
+            }
             0xFEA0..=0xFEFF => {}
             0xFF00 => self.joypad.write(value),
             0xFF01..=0xFF02 => self.serial.write(address, value),
@@ -144,5 +179,21 @@ impl GameMemory {
         let tile_y = (bg_y / 8) as usize;
         let map_offset = (map_base - 0x8000) as usize;
         vram_bank_1[map_offset + tile_y * 32 + tile_x]
+    }
+
+    pub fn print_vram_diagnostics(&self) {
+        println!("=== VRAM DIAGNOSTICS ===");
+        println!("VRAM WRITES: {}", self.vram_write_count);
+        println!("VRAM NONZERO WRITES: {}", self.vram_nonzero_write_count);
+        println!("BG MAP WRITES (9800-9FFF): {}", self.bg_map_write_count);
+        println!("OAM WRITES: {}", self.oam_write_count);
+        match self.last_vram_write {
+            Some((address, value, bank)) => println!(
+                "LAST VRAM WRITE: addr={:04X} value={:02X} bank={}",
+                address, value, bank
+            ),
+            None => println!("LAST VRAM WRITE: none"),
+        }
+        println!("========================");
     }
 }
