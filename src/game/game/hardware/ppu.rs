@@ -1,3 +1,45 @@
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowScanline {
+    pub pixels: [u32; 160],
+    pub priority: [bool; 160],
+    pub visible: [bool; 160],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Sprite {
+    pub y: u8,
+    pub x: u8,
+    pub tile: u8,
+    pub flags: u8,
+}
+
+impl Sprite {
+    pub fn priority(&self) -> bool {
+        self.flags & 0x80 != 0
+    }
+
+    pub fn y_flip(&self) -> bool {
+        self.flags & 0x40 != 0
+    }
+
+    pub fn x_flip(&self) -> bool {
+        self.flags & 0x20 != 0
+    }
+
+    pub fn vram_bank(&self) -> usize {
+        if self.flags & 0x08 != 0 {
+            1
+        } else {
+            0
+        }
+    }
+
+    pub fn cgb_palette(&self) -> usize {
+        (self.flags & 0x07) as usize
+    }
+}
+
 #[derive(Debug)]
 pub struct Ppu {
     ly: u8,
@@ -442,77 +484,16 @@ impl Ppu {
     let mut frame = [0u32; 160 * 144];
 
     for y in 0..144 {
-        let mut pixels = [0u32; 160];
-
-        let map_base = if self.lcdc & 0x08 != 0 {
-            0x9C00
-        } else {
-            0x9800
-        };
-
-        let tile_data_base = if self.lcdc & 0x10 != 0 {
-            0x8000
-        } else {
-            0x9000
-        };
-
-        let bg_y = (y as u8).wrapping_add(self.scy);
-
-        for screen_x in 0..160u16 {
-            let screen_x = screen_x as u8;
-            let bg_x = screen_x.wrapping_add(self.scx);
-
-            let tile_index = Self::background_tile_index(
-                vram_bank_0,
-                bg_x,
-                bg_y,
-                map_base,
-            );
-
-            let attributes = Self::background_tile_attributes(
-                vram_bank_1,
-                bg_x,
-                bg_y,
-                map_base,
-            );
-
-            let (palette, vram_bank, flip_x, flip_y, _priority) =
-                Self::background_tile_attribute_info(attributes);
-
-            let tile_vram = if vram_bank {
-                vram_bank_1
-            } else {
-                vram_bank_0
-            };
-
-            let tile = Self::background_tile_data(
-                tile_vram,
-                tile_index,
-                tile_data_base,
-            );
-
-            let row = if flip_y {
-                7 - (bg_y & 0x07) as usize
-            } else {
-                (bg_y & 0x07) as usize
-            };
-
-            let pixel_x = if flip_x {
-                7 - (bg_x & 0x07) as usize
-            } else {
-                (bg_x & 0x07) as usize
-            };
-
-            let row_pixels = Self::decode_tile_row(&tile, row);
-            let color_index = row_pixels[pixel_x];
-
-            pixels[screen_x as usize] =
-                self.background_palette_color(palette, color_index);
-        }
+        let line = self.render_background_scanline_cgb(
+            vram_bank_0,
+            vram_bank_1,
+            y as u8,
+        );
 
         let start = y * 160;
         let end = start + 160;
-        frame[start..end].copy_from_slice(&pixels);
+
+        frame[start..end].copy_from_slice(&line);
     }
 
     frame
@@ -671,6 +652,7 @@ pub fn render_background_scanline_cgb(
     &self,
     vram_bank_0: &[u8; 0x2000],
     vram_bank_1: &[u8; 0x2000],
+    screen_y: u8,
 ) -> [u32; 160] {
     let mut pixels = [0u32; 160];
 
@@ -686,7 +668,7 @@ pub fn render_background_scanline_cgb(
         0x9000
     };
 
-    let bg_y = self.ly.wrapping_add(self.scy);
+    let bg_y = screen_y.wrapping_add(self.scy);
 
     for screen_x in 0..160u16 {
         let screen_x = screen_x as u8;
@@ -747,19 +729,22 @@ pub fn render_window_scanline_cgb(
     vram_bank_0: &[u8; 0x2000],
     vram_bank_1: &[u8; 0x2000],
     screen_y: u8,
-) -> ([u32; 160], [bool; 160]) {
+) -> WindowScanline {
     let mut pixels = [0u32; 160];
     let mut priority = [false; 160];
+    let mut visible = [false; 160];
 
-    // Window musi być włączone.
-    if self.lcdc & 0x20 == 0 {
-        return (pixels, priority);
-    }
-
-    // Window pojawia się dopiero od WY.
-    if screen_y < self.wy {
-        return (pixels, priority);
-    }
+    // Window musi być włączone i widoczne na tej linii.
+    let window_y = match self.window_line_for_scanline(screen_y) {
+        Some(line) => line,
+        None => {
+            return WindowScanline {
+                pixels,
+                priority,
+                visible,
+            };
+        }
+    };
 
     let map_base = if self.lcdc & 0x40 != 0 {
         0x9C00
@@ -774,23 +759,25 @@ pub fn render_window_scanline_cgb(
     };
 
     // WX = 7 oznacza początek Window na ekranie.
-    let window_x_start = self.wx.wrapping_sub(7);
+    let window_x_start = self.wx.saturating_sub(7);
 
-    let window_y = screen_y.wrapping_sub(self.wy);
+    // WX > 166 oznacza, że Window nie jest widoczne.
+    if self.wx > 166 {
+        return WindowScanline {
+            pixels,
+            priority,
+            visible,
+        };
+    }
 
     for screen_x in 0..160usize {
-        // WX > 166 oznacza, że Window nie jest widoczne.
-        if self.wx > 166 {
-            break;
-        }
-
         let screen_x_u8 = screen_x as u8;
 
         if screen_x_u8 < window_x_start {
             continue;
         }
 
-        let window_x = screen_x_u8.wrapping_sub(window_x_start);
+        let window_x = screen_x_u8 - window_x_start;
 
         let tile_index = Self::background_tile_index(
             vram_bank_0,
@@ -839,12 +826,21 @@ pub fn render_window_scanline_cgb(
         pixels[screen_x] =
             self.background_palette_color(palette, color_index);
 
-        // Color 0 nie blokuje OBJ.
+        // Window pixel istnieje również wtedy, gdy color_index == 0.
+        visible[screen_x] = true;
+
+        // CGB BG priority: kolor 0 nie aktywuje blokowania OBJ.
         priority[screen_x] =
-            bg_priority && color_index != 0;
+            visible[screen_x]
+                && bg_priority
+                && color_index != 0;
     }
 
-    (pixels, priority)
+    WindowScanline {
+        pixels,
+        priority,
+        visible,
+    }
 }
 pub fn render_window_frame_cgb(
     &self,
@@ -853,20 +849,21 @@ pub fn render_window_frame_cgb(
 ) -> ([u32; 160 * 144], [bool; 160 * 144]) {
     let mut frame = [0u32; 160 * 144];
     let mut priority = [false; 160 * 144];
+    let mut visible = [false; 160 * 144];
 
     for y in 0..144 {
-        let (line, line_priority) =
-            self.render_window_scanline_cgb(
-                vram_bank_0,
-                vram_bank_1,
-                y as u8,
-            );
+        let line = self.render_window_scanline_cgb(
+            vram_bank_0,
+            vram_bank_1,
+            y as u8,
+        );
 
         let start = y * 160;
         let end = start + 160;
 
-        frame[start..end].copy_from_slice(&line);
-        priority[start..end].copy_from_slice(&line_priority);
+        frame[start..end].copy_from_slice(&line.pixels);
+        priority[start..end].copy_from_slice(&line.priority);
+        visible[start..end].copy_from_slice(&line.visible);
     }
 
     (frame, priority)
@@ -898,7 +895,77 @@ fn advance_window_line(&mut self, screen_y: u8) {
         self.window_line = self.window_line.wrapping_add(1);
     }
 }
+pub fn render_bg_window_scanline_cgb(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+    screen_y: u8,
+) -> ([u32; 160], [bool; 160]) {
+    let mut frame = self.render_background_scanline_cgb(
+        vram_bank_0,
+        vram_bank_1,
+        screen_y,
+    );
+
+    let mut priority = [false; 160];
+
+    let window = self.render_window_scanline_cgb(
+        vram_bank_0,
+        vram_bank_1,
+        screen_y,
+    );
+
+    for x in 0..160 {
+        if window.visible[x] {
+            frame[x] = window.pixels[x];
+            priority[x] = window.priority[x];
+        }
+    }
+
+    (frame, priority)
 }
+pub fn read_sprites(
+    &self,
+    oam: &[u8; 0xA0],
+) -> [Sprite; 40] {
+    std::array::from_fn(|index| {
+        Self::read_sprite(oam, index)
+    })
+}
+fn read_sprite(
+    oam: &[u8; 0xA0],
+    index: usize,
+) -> Sprite {
+    let base = index * 4;
+
+    Sprite {
+        y: oam[base],
+        x: oam[base + 1],
+        tile: oam[base + 2],
+        flags: oam[base + 3],
+    }
+}
+pub fn obj_height(&self) -> u8 {
+    if self.lcdc & 0x04 != 0 {
+        16
+    } else {
+        8
+    }
+}
+pub fn sprite_visible_on_line(
+    &self,
+    sprite: &Sprite,
+    screen_y: u8,
+) -> bool {
+    let height = self.obj_height();
+
+    let sprite_y = sprite.y.wrapping_sub(16);
+
+    screen_y >= sprite_y
+        && screen_y < sprite_y.wrapping_add(height)
+}
+}
+
 
 #[cfg(test)]
 mod tests {
