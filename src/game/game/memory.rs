@@ -13,7 +13,8 @@ use crate::game::hardware::joypad::Joypad;
 #[derive(Debug)]
 pub struct GameMemory {
     cartridge: Cartridge,
-    vram: [u8; 0x2000],
+    vram_bank: u8,
+    vram: [[u8; 0x2000]; 2],
     wram: [u8; 0x8000],
     oam: [u8; 0x00A0],
     io: [u8; 0x0080],
@@ -29,7 +30,8 @@ impl GameMemory {
     pub fn new(cartridge: Cartridge) -> Self {
         Self {
             cartridge,
-            vram: [0; 0x2000],
+            vram_bank: 0,
+            vram: [[0; 0x2000]; 2],
             wram: [0; 0x8000],
             oam: [0; 0x00A0],
             io: [0; 0x0080],
@@ -149,10 +151,15 @@ impl GameMemory {
             self.interrupt.request(3);
         }
         if self.joypad.take_interrupt() {
-    self.interrupt.request(4);
-}
+            self.interrupt.request(4);
+        }
     }
-    
+    pub fn background_tile_attributes(
+        vram_bank_1: &[u8; 0x2000],
+        bg_x: u8,
+        bg_y: u8,
+        map_base: u16,
+    ) -> u8
 }
 
 #[cfg(test)]
