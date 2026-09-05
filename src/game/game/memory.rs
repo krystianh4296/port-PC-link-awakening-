@@ -19,12 +19,14 @@ pub struct GameMemory {
     ppu: Ppu,
     serial: Serial,
     joypad: Joypad,
+    cpu_pc: u16,
     vram_write_count: u64,
     vram_nonzero_write_count: u64,
     bg_map_write_count: u64,
     oam_write_count: u64,
     ppu_register_write_count: u64,
     vram_bank_write_count: u64,
+    graphics_write_trace_count: u16,
     vram_first_writes_logged: u8,
     last_vram_write: Option<(u16, u8, u8)>,
 }
@@ -44,15 +46,21 @@ impl GameMemory {
             ppu: Ppu::new(),
             serial: Serial::new(),
             joypad: Joypad::new(),
+            cpu_pc: 0x0100,
             vram_write_count: 0,
             vram_nonzero_write_count: 0,
             bg_map_write_count: 0,
             oam_write_count: 0,
             ppu_register_write_count: 0,
             vram_bank_write_count: 0,
+            graphics_write_trace_count: 0,
             vram_first_writes_logged: 0,
             last_vram_write: None,
         }
+    }
+
+    pub fn set_cpu_pc(&mut self, pc: u16) {
+        self.cpu_pc = pc;
     }
 
     pub fn cartridge(&self) -> &Cartridge { &self.cartridge }
@@ -96,9 +104,21 @@ impl GameMemory {
                 if value != 0 { self.vram_nonzero_write_count += 1; }
                 if address >= 0x9800 { self.bg_map_write_count += 1; }
                 self.last_vram_write = Some((address, value, bank as u8));
+
+                if self.graphics_write_trace_count < 100 {
+                    self.graphics_write_trace_count += 1;
+                    println!(
+                        "GRAPHICS WRITE #{}: PC={:04X} VRAM={:04X} VALUE={:02X} BANK={}",
+                        self.graphics_write_trace_count, self.cpu_pc, address, value, bank
+                    );
+                }
+
                 if self.vram_first_writes_logged < 50 {
                     self.vram_first_writes_logged += 1;
-                    println!("VRAM WRITE #{}: addr={:04X} value={:02X} bank={}", self.vram_first_writes_logged, address, value, bank);
+                    println!(
+                        "VRAM WRITE #{}: addr={:04X} value={:02X} bank={}",
+                        self.vram_first_writes_logged, address, value, bank
+                    );
                 }
             }
             0xC000..=0xDFFF => self.wram[(address - 0xC000) as usize] = value,
@@ -106,6 +126,13 @@ impl GameMemory {
             0xFE00..=0xFE9F => {
                 self.oam[(address - 0xFE00) as usize] = value;
                 self.oam_write_count += 1;
+                if self.graphics_write_trace_count < 100 {
+                    self.graphics_write_trace_count += 1;
+                    println!(
+                        "GRAPHICS WRITE #{}: PC={:04X} OAM={:04X} VALUE={:02X}",
+                        self.graphics_write_trace_count, self.cpu_pc, address, value
+                    );
+                }
             }
             0xFEA0..=0xFEFF => {}
             0xFF00 => self.joypad.write(value),
@@ -117,10 +144,24 @@ impl GameMemory {
             0xFF0F => self.interrupt.write_if(value),
             0xFF40..=0xFF47 | 0xFF68 | 0xFF69 | 0xFF6A | 0xFF6B => {
                 self.ppu_register_write_count += 1;
+                if self.graphics_write_trace_count < 100 {
+                    self.graphics_write_trace_count += 1;
+                    println!(
+                        "GRAPHICS WRITE #{}: PC={:04X} PPU={:04X} VALUE={:02X}",
+                        self.graphics_write_trace_count, self.cpu_pc, address, value
+                    );
+                }
                 self.ppu.write(address, value);
             }
             0xFF4F => {
                 self.vram_bank_write_count += 1;
+                if self.graphics_write_trace_count < 100 {
+                    self.graphics_write_trace_count += 1;
+                    println!(
+                        "GRAPHICS WRITE #{}: PC={:04X} VRAM_BANK=FF4F VALUE={:02X}",
+                        self.graphics_write_trace_count, self.cpu_pc, value
+                    );
+                }
                 self.vram_bank = value & 0x01;
             }
             0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF3F |
