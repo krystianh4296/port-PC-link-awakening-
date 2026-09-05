@@ -402,8 +402,7 @@ pub fn render_background_scanline_at(
         let row_pixels =
             Self::decode_tile_row(&tile, row);
 
-        pixels[screen_x as usize] =
-        self.apply_bgp_palette(row_pixels[pixel_x]);
+        
     }
 
     pixels
@@ -428,9 +427,30 @@ pub fn render_background_frame(
 
     frame
 }
-pub fn apply_bgp_palette(&self, color: u8) -> u8 {
-    let shift = color * 2;
-    (self.bgp >> shift) & 0b11
+pub fn cgb_rgb555_to_argb(color: u16) -> u32 {
+    let r = ((color >> 0) & 0x1F) as u32;
+    let g = ((color >> 5) & 0x1F) as u32;
+    let b = ((color >> 10) & 0x1F) as u32;
+
+    let r = (r * 255) / 31;
+    let g = (g * 255) / 31;
+    let b = (b * 255) / 31;
+
+    0xFF000000 | (r << 16) | (g << 8) | b
+}
+pub fn background_palette_color(
+    &self,
+    palette: u8,
+    color_index: u8,
+) -> u32 {
+    let base = (palette as usize) * 8 + (color_index as usize) * 2;
+
+    let low = self.bg_palette_ram[base] as u16;
+    let high = self.bg_palette_ram[base + 1] as u16;
+
+    let rgb555 = low | (high << 8);
+
+    Self::cgb_rgb555_to_argb(rgb555)
 }
 }
 
@@ -838,45 +858,25 @@ fn render_background_frame_has_144_lines() {
     assert_eq!(&frame[160..164], &[0, 0, 0, 0]);
 }
 #[test]
-fn bgp_default_palette() {
-    let ppu = Ppu::new();
-
-    assert_eq!(ppu.apply_bgp_palette(0), 0);
-    assert_eq!(ppu.apply_bgp_palette(1), 1);
-    assert_eq!(ppu.apply_bgp_palette(2), 2);
-    assert_eq!(ppu.apply_bgp_palette(3), 3);
+fn rgb555_white_black_red_green_blue() {
+    assert_eq!(Ppu::cgb_rgb555_to_argb(0x7FFF), 0xFFFFFFFF);
+    assert_eq!(Ppu::cgb_rgb555_to_argb(0x0000), 0xFF000000);
+    assert_eq!(Ppu::cgb_rgb555_to_argb(0x001F), 0xFFFF0000);
+    assert_eq!(Ppu::cgb_rgb555_to_argb(0x03E0), 0xFF00FF00);
+    assert_eq!(Ppu::cgb_rgb555_to_argb(0x7C00), 0xFF0000FF);
 }
 #[test]
-fn bgp_reverse_palette() {
+fn background_palette_returns_correct_rgb() {
     let mut ppu = Ppu::new();
 
-    ppu.write(0xFF47, 0x1B);
-
-    assert_eq!(ppu.apply_bgp_palette(0), 3);
-    assert_eq!(ppu.apply_bgp_palette(1), 2);
-    assert_eq!(ppu.apply_bgp_palette(2), 1);
-    assert_eq!(ppu.apply_bgp_palette(3), 0);
-}
-#[test]
-fn render_scanline_uses_bgp_palette() {
-    let mut ppu = Ppu::new();
-
-    ppu.write(0xFF40, 0x91);
-    ppu.write(0xFF47, 0x1B);
-
-    let mut vram = [0u8; 0x2000];
-
-    // Tile 0 = 0,1,2,3,0,1,2,3
-    vram[0] = 0b01010101;
-    vram[1] = 0b00110011;
-
-    vram[0x1800] = 0;
-
-    let pixels = ppu.render_background_scanline_at(&vram, 0);
+    // Paleta 0, kolor 1 = czerwony.
+    ppu.write(0xFF68, 2);
+    ppu.write(0xFF69, 0x1F);
+    ppu.write(0xFF69, 0x00);
 
     assert_eq!(
-        &pixels[0..8],
-        &[3,2,1,0,3,2,1,0]
+        ppu.background_palette_color(0, 1),
+        0xFFFF0000
     );
 }
 }
