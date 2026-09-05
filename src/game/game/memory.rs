@@ -1,15 +1,15 @@
-use crate::game::hardware::ppu::Ppu;
-use crate::game::hardware::timer::Timer;
 use crate::game::hardware::interrupt::InterruptController;
-use crate::rom::Cartridge;
-use crate::game::hardware::serial::Serial;
 use crate::game::hardware::joypad::Joypad;
+use crate::game::hardware::ppu::Ppu;
+use crate::game::hardware::serial::Serial;
+use crate::game::hardware::timer::Timer;
+use crate::rom::Cartridge;
 
 /// CPU-visible memory map for the native Link's Awakening DX port.
 ///
 /// Cartridge-owned regions are delegated to `Cartridge` while the internal
-/// Game Boy memory regions are kept here. This gives the future CPU one
-/// stable read/write interface instead of exposing individual memory arrays.
+/// Game Boy memory regions are kept here. This gives the CPU one stable
+/// read/write interface instead of exposing individual memory arrays.
 #[derive(Debug)]
 pub struct GameMemory {
     cartridge: Cartridge,
@@ -56,23 +56,26 @@ impl GameMemory {
     pub fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x7FFF | 0xA000..=0xBFFF => self.cartridge.read(address),
-            0x8000..=0x9FFF => self.vram[(address - 0x8000) as usize],
+            0x8000..=0x9FFF => {
+                let bank = (self.vram_bank & 0x01) as usize;
+                self.vram[bank][(address - 0x8000) as usize]
+            }
             0xC000..=0xDFFF => self.wram[(address - 0xC000) as usize],
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize],
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize],
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00 => self.joypad.read(),
             0xFF01..=0xFF02 => self.serial.read(address),
+            0xFF04..=0xFF07 => self.timer.read(address),
+            0xFF0F => self.interrupt.read_if(),
             0xFF40..=0xFF47
             | 0xFF68
             | 0xFF69
             | 0xFF6A
             | 0xFF6B => self.ppu.read(address),
-            0xFF04..=0xFF07 => self.timer.read(address),
-            0xFF0F => self.interrupt.read_if(),
-            0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF7F => {
-                self.io[(address - 0xFF00) as usize]
-            }
+            0xFF4F => 0xFE | (self.vram_bank & 0x01),
+            0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF3F | 0xFF50..=0xFF67
+            | 0xFF70..=0xFF7F => self.io[(address - 0xFF00) as usize],
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize],
             0xFFFF => self.interrupt.read_ie(),
         }
@@ -82,22 +85,16 @@ impl GameMemory {
     pub fn write(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x7FFF | 0xA000..=0xBFFF => self.cartridge.write(address, value),
-            0x8000..=0x9FFF => self.vram[(address - 0x8000) as usize] = value,
+            0x8000..=0x9FFF => {
+                let bank = (self.vram_bank & 0x01) as usize;
+                self.vram[bank][(address - 0x8000) as usize] = value;
+            }
             0xC000..=0xDFFF => self.wram[(address - 0xC000) as usize] = value,
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize] = value,
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize] = value,
-            0xFEA0..=0xFEFF => {},
-            0xFF40..=0xFF47
-            | 0xFF68
-            | 0xFF69
-            | 0xFF6A
-            | 0xFF6B => {
-                self.ppu.write(address, value)
-            }
+            0xFEA0..=0xFEFF => {}
             0xFF00 => self.joypad.write(value),
-            0xFF01..=0xFF02 => {
-                self.serial.write(address, value);
-            }
+            0xFF01..=0xFF02 => self.serial.write(address, value),
             0xFF04..=0xFF07 => {
                 self.timer.write(address, value);
 
@@ -106,7 +103,14 @@ impl GameMemory {
                 }
             }
             0xFF0F => self.interrupt.write_if(value),
-            0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF7F => {
+            0xFF40..=0xFF47
+            | 0xFF68
+            | 0xFF69
+            | 0xFF6A
+            | 0xFF6B => self.ppu.write(address, value),
+            0xFF4F => self.vram_bank = value & 0x01,
+            0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF3F | 0xFF50..=0xFF67
+            | 0xFF70..=0xFF7F => {
                 self.io[(address - 0xFF00) as usize] = value;
             }
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize] = value,
@@ -125,9 +129,11 @@ impl GameMemory {
         self.write(address, lo);
         self.write(address.wrapping_add(1), hi);
     }
+
     pub fn joypad_button_pressed(&mut self, button: u8) {
         self.joypad.button_pressed(button);
     }
+
     pub fn step(&mut self, cycles: u32) {
         self.timer.step(cycles);
 
@@ -154,31 +160,107 @@ impl GameMemory {
             self.interrupt.request(4);
         }
     }
+
+    /// Returns the CGB tile attribute byte from VRAM bank 1.
     pub fn background_tile_attributes(
         vram_bank_1: &[u8; 0x2000],
         bg_x: u8,
         bg_y: u8,
         map_base: u16,
-    ) -> u8
+    ) -> u8 {
+        let tile_x = (bg_x / 8) as usize;
+        let tile_y = (bg_y / 8) as usize;
+        let map_offset = (map_base - 0x8000) as usize;
+        vram_bank_1[map_offset + tile_y * 32 + tile_x]
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::game::cpu::Cpu;
-    use super::GameMemory;
     use crate::rom::{Cartridge, Rom};
 
     fn test_memory() -> GameMemory {
-    use crate::rom::{Cartridge, Rom};
+        let rom = Rom::load(
+            "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
+        )
+        .expect("Nie można załadować ROM-u testowego");
 
-    let rom = Rom::load(
-        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
-    )
-    .expect("Nie można załadować ROM-u testowego");
+        GameMemory::new(Cartridge::new(rom))
+    }
 
-    GameMemory::new(Cartridge::new(rom))
-}
+    #[test]
+    fn vram_defaults_to_bank_zero() {
+        let memory = test_memory();
+
+        assert_eq!(memory.read(0xFF4F), 0xFE);
+    }
+
+    #[test]
+    fn vram_bank_switching_is_visible_through_vbk() {
+        let mut memory = test_memory();
+
+        memory.write(0xFF4F, 0x01);
+        assert_eq!(memory.read(0xFF4F), 0xFF);
+
+        memory.write(0xFF4F, 0x00);
+        assert_eq!(memory.read(0xFF4F), 0xFE);
+    }
+
+    #[test]
+    fn vram_banks_are_independent() {
+        let mut memory = test_memory();
+
+        memory.write(0xFF4F, 0x00);
+        memory.write(0x8000, 0x12);
+
+        memory.write(0xFF4F, 0x01);
+        memory.write(0x8000, 0x34);
+        assert_eq!(memory.read(0x8000), 0x34);
+
+        memory.write(0xFF4F, 0x00);
+        assert_eq!(memory.read(0x8000), 0x12);
+
+        memory.write(0xFF4F, 0x01);
+        assert_eq!(memory.read(0x8000), 0x34);
+    }
+
+    #[test]
+    fn vram_bank_select_ignores_upper_bits() {
+        let mut memory = test_memory();
+
+        memory.write(0xFF4F, 0xFE);
+        assert_eq!(memory.read(0xFF4F), 0xFE);
+
+        memory.write(0xFF4F, 0xFF);
+        assert_eq!(memory.read(0xFF4F), 0xFF);
+    }
+
+    #[test]
+    fn background_tile_attributes_reads_vram_bank_one() {
+        let mut memory = test_memory();
+
+        memory.write(0xFF4F, 0x01);
+        memory.write(0x9800, 0xA5);
+
+        memory.write(0xFF4F, 0x00);
+        memory.write(0x9800, 0x3C);
+
+        memory.write(0xFF4F, 0x01);
+        assert_eq!(
+            GameMemory::background_tile_attributes(
+                &memory.vram[1],
+                0,
+                0,
+                0x9800,
+            ),
+            0xA5
+        );
+
+        memory.write(0xFF4F, 0x00);
+        assert_eq!(memory.read(0x9800), 0x3C);
+    }
 
     #[test]
     fn timer_overflow_sets_timer_interrupt_flag() {
@@ -189,7 +271,6 @@ mod tests {
         memory.write(0xFF07, 0x05);
 
         memory.step(16);
-
         assert_eq!(memory.read(0xFF05), 0x00);
 
         memory.step(4);
@@ -197,157 +278,130 @@ mod tests {
         assert_eq!(memory.read(0xFF05), 0x42);
         assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
     }
+
     #[test]
-fn ppu_vblank_sets_vblank_interrupt_flag() {
-    let mut memory = test_memory();
+    fn ppu_vblank_sets_vblank_interrupt_flag() {
+        let mut memory = test_memory();
 
-    memory.step(456 * 144);
+        memory.step(456 * 144);
 
-    assert_eq!(memory.read(0xFF44), 144);
-    assert_eq!(memory.read(0xFF0F) & 0x01, 0x01);
-}
-#[test]
-fn interrupt_controller_handles_ie_and_if() {
-    let mut memory = test_memory();
+        assert_eq!(memory.read(0xFF44), 144);
+        assert_eq!(memory.read(0xFF0F) & 0x01, 0x01);
+    }
 
-    memory.write(0xFFFF, 0x05);
-    memory.write(0xFF0F, 0x05);
+    #[test]
+    fn interrupt_controller_handles_ie_and_if() {
+        let mut memory = test_memory();
 
-    assert_eq!(memory.read(0xFFFF), 0x05);
-    assert_eq!(memory.read(0xFF0F) & 0x1F, 0x05);
-}
-#[test]
-fn timer_requests_interrupt_through_interrupt_controller() {
-    let mut memory = test_memory();
+        memory.write(0xFFFF, 0x05);
+        memory.write(0xFF0F, 0x05);
 
-    memory.write(0xFF05, 0xFF);
-    memory.write(0xFF06, 0x42);
-    memory.write(0xFF07, 0x05);
+        assert_eq!(memory.read(0xFFFF), 0x05);
+        assert_eq!(memory.read(0xFF0F) & 0x1F, 0x05);
+    }
 
-    memory.step(16);
-    memory.step(4);
+    #[test]
+    fn timer_requests_interrupt_through_interrupt_controller() {
+        let mut memory = test_memory();
 
-    assert_eq!(memory.read(0xFF05), 0x42);
-    assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
-}
-#[test]
-fn ppu_stat_sets_stat_interrupt_flag() {
-    let mut memory = test_memory();
+        memory.write(0xFF05, 0xFF);
+        memory.write(0xFF06, 0x42);
+        memory.write(0xFF07, 0x05);
 
-    // Włącz przerwanie STAT dla OAM (Mode 2).
-    memory.write(0xFF41, 0x20);
+        memory.step(16);
+        memory.step(4);
 
-    assert_eq!(memory.read(0xFF41) & 0x20, 0x20);
+        assert_eq!(memory.read(0xFF05), 0x42);
+        assert_eq!(memory.read(0xFF0F) & 0x04, 0x04);
+    }
 
-    // PPU startuje w Mode 2, więc STAT IRQ powinno zostać zgłoszone.
-    memory.step(1);
+    #[test]
+    fn ppu_stat_sets_stat_interrupt_flag() {
+        let mut memory = test_memory();
 
-    assert_eq!(memory.read(0xFF0F) & 0x02, 0x02);
-}
-#[test]
-fn stat_interrupt_jumps_to_0048() {
-    let mut memory = test_memory();
-    let mut cpu = Cpu::new();
+        memory.write(0xFF41, 0x20);
 
-    // Włącz LCD STAT interrupt w IE.
-    memory.write(0xFFFF, 0x02);
+        assert_eq!(memory.read(0xFF41) & 0x20, 0x20);
 
-    // Włącz OAM STAT interrupt (mode 2).
-    memory.write(0xFF41, 0x20);
+        memory.step(1);
 
-    // PPU startuje w mode 2, więc połączenie powinno
-    // wygenerować żądanie STAT.
-    memory.step(1);
+        assert_eq!(memory.read(0xFF0F) & 0x02, 0x02);
+    }
 
-    assert_eq!(memory.read(0xFF0F) & 0x02, 0x02);
+    #[test]
+    fn stat_interrupt_jumps_to_0048() {
+        let mut memory = test_memory();
+        let mut cpu = Cpu::new();
 
-    cpu.ime = true;
-    cpu.pc = 0x1234;
-    cpu.sp = 0xFFFE;
+        memory.write(0xFFFF, 0x02);
+        memory.write(0xFF41, 0x20);
+        memory.step(1);
 
-    let cycles = cpu.step(&mut memory);
+        assert_eq!(memory.read(0xFF0F) & 0x02, 0x02);
 
-    assert_eq!(cycles, 20);
-    assert_eq!(cpu.pc, 0x0048);
-    assert!(!cpu.ime);
+        cpu.ime = true;
+        cpu.pc = 0x1234;
+        cpu.sp = 0xFFFE;
 
-    // STAT IF.1 powinien zostać wyczyszczony.
-    assert_eq!(memory.read(0xFF0F) & 0x02, 0);
+        let cycles = cpu.step(&mut memory);
 
-    // CPU powinien zapisać poprzedni PC na stosie.
-    assert_eq!(memory.read(0xFFFC), 0x34);
-    assert_eq!(memory.read(0xFFFD), 0x12);
-}
-#[test]
-fn lcdc_read_write() {
-    let mut ppu = Ppu::new();
+        assert_eq!(cycles, 20);
+        assert_eq!(cpu.pc, 0x0048);
+        assert!(!cpu.ime);
+        assert_eq!(memory.read(0xFF0F) & 0x02, 0);
+        assert_eq!(memory.read(0xFFFC), 0x34);
+        assert_eq!(memory.read(0xFFFD), 0x12);
+    }
 
-    assert_eq!(ppu.read(0xFF40), 0x91);
+    #[test]
+    fn scroll_registers_affect_ppu_state() {
+        let mut memory = test_memory();
 
-    ppu.write(0xFF40, 0xC7);
+        memory.write(0xFF42, 32);
+        memory.write(0xFF43, 64);
 
-    assert_eq!(ppu.read(0xFF40), 0xC7);
-}
-#[test]
-fn lcdc_bits_are_preserved() {
-    let mut ppu = Ppu::new();
+        assert_eq!(memory.read(0xFF42), 32);
+        assert_eq!(memory.read(0xFF43), 64);
+    }
 
-    ppu.write(0xFF40, 0x00);
-    assert_eq!(ppu.read(0xFF40), 0x00);
+    #[test]
+    fn bg_palette_ram_read_write() {
+        let mut ppu = Ppu::new();
 
-    ppu.write(0xFF40, 0xFF);
-    assert_eq!(ppu.read(0xFF40), 0xFF);
-}
-#[test]
-fn scroll_registers_affect_ppu_state() {
-    let mut memory = test_memory();
+        ppu.write(0xFF68, 5);
+        ppu.write(0xFF69, 0xAB);
+        ppu.write(0xFF68, 5);
 
-    memory.write(0xFF42, 32);
-    memory.write(0xFF43, 64);
+        assert_eq!(ppu.read(0xFF69), 0xAB);
+    }
 
-    assert_eq!(memory.read(0xFF42), 32);
-    assert_eq!(memory.read(0xFF43), 64);
-}
-#[test]
-fn bg_palette_ram_read_write() {
-    let mut ppu = Ppu::new();
+    #[test]
+    fn bg_palette_auto_increment() {
+        let mut ppu = Ppu::new();
 
-    ppu.write(0xFF68, 5);
-    ppu.write(0xFF69, 0xAB);
+        ppu.write(0xFF68, 0x80);
+        ppu.write(0xFF69, 0x11);
+        ppu.write(0xFF69, 0x22);
+        ppu.write(0xFF69, 0x33);
 
-    ppu.write(0xFF68, 5);
+        ppu.write(0xFF68, 0);
+        assert_eq!(ppu.read(0xFF69), 0x11);
 
-    assert_eq!(ppu.read(0xFF69), 0xAB);
-}
-#[test]
-fn bg_palette_auto_increment() {
-    let mut ppu = Ppu::new();
+        ppu.write(0xFF68, 1);
+        assert_eq!(ppu.read(0xFF69), 0x22);
 
-    ppu.write(0xFF68, 0x80);
+        ppu.write(0xFF68, 2);
+        assert_eq!(ppu.read(0xFF69), 0x33);
+    }
 
-    ppu.write(0xFF69, 0x11);
-    ppu.write(0xFF69, 0x22);
-    ppu.write(0xFF69, 0x33);
+    #[test]
+    fn memory_maps_cgb_palette_registers() {
+        let mut memory = test_memory();
 
-    ppu.write(0xFF68, 0);
+        memory.write(0xFF68, 0x80);
+        memory.write(0xFF69, 0x55);
+        memory.write(0xFF68, 0);
 
-    assert_eq!(ppu.read(0xFF69), 0x11);
-
-    ppu.write(0xFF68, 1);
-    assert_eq!(ppu.read(0xFF69), 0x22);
-
-    ppu.write(0xFF68, 2);
-    assert_eq!(ppu.read(0xFF69), 0x33);
-}
-#[test]
-fn memory_maps_cgb_palette_registers() {
-    let mut memory = test_memory();
-
-    memory.write(0xFF68, 0x80);
-    memory.write(0xFF69, 0x55);
-
-    memory.write(0xFF68, 0);
-
-    assert_eq!(memory.read(0xFF69), 0x55);
-}
+        assert_eq!(memory.read(0xFF69), 0x55);
+    }
 }
