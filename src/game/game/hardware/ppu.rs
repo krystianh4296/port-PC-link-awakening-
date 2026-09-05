@@ -9,6 +9,10 @@ pub struct Ppu {
     scx: u8,
     scy: u8,
 
+    wx: u8,
+    wy: u8,
+    window_line: u8,
+
     // CGB BG/OBJ palette RAM.
     bg_palette_ram: [u8; 64],
     obj_palette_ram: [u8; 64],
@@ -20,7 +24,7 @@ pub struct Ppu {
 
     vblank_interrupt: bool,
     stat_interrupt: bool,
-    stat_irq_line: bool,
+    stat_irq_line: bool,    
 }
 
 impl Ppu {
@@ -32,6 +36,9 @@ impl Ppu {
             stat: 0x80,
             scx: 0,
             scy: 0,
+            wx: 0,
+            wy: 0,
+            window_line: 0,
             bg_palette_ram: [0; 64],
             obj_palette_ram: [0; 64],
             bgpi: 0,
@@ -151,11 +158,17 @@ impl Ppu {
             0xFF43 => self.scx,
             0xFF44 => self.ly,
             0xFF45 => self.lyc,
+            0xFF46 => self.dma,
+            0xFF47 => self.bgp,
+            0xFF48 => self.obp0,
+            0xFF49 => self.obp1,
             0xFF68 => self.bgpi,
             0xFF69 => {
                 let index = (self.bgpi & 0x3F) as usize;
                 self.bg_palette_ram[index]
             }
+            0xFF4A => self.wy,
+            0xFF4B => self.wx,
             0xFF6A => self.obpi,
             0xFF6B => {
                 let index = (self.obpi & 0x3F) as usize;
@@ -204,6 +217,8 @@ impl Ppu {
                 self.update_stat_interrupt();
             }
             0xFF44 => {}
+            0xFF4A => self.wy = value,
+            0xFF4B => self.wx = value,
             0xFF68 => {
                 self.bgpi = value;
             }
@@ -414,6 +429,193 @@ impl Ppu {
         frame
     }
 
+    pub fn render_background_frame_cgb(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+) -> [u32; 160 * 144] {
+    let mut frame = [0u32; 160 * 144];
+
+    for y in 0..144 {
+        let mut pixels = [0u32; 160];
+
+        let map_base = if self.lcdc & 0x08 != 0 {
+            0x9C00
+        } else {
+            0x9800
+        };
+
+        let tile_data_base = if self.lcdc & 0x10 != 0 {
+            0x8000
+        } else {
+            0x9000
+        };
+
+        let bg_y = (y as u8).wrapping_add(self.scy);
+
+        for screen_x in 0..160u16 {
+            let screen_x = screen_x as u8;
+            let bg_x = screen_x.wrapping_add(self.scx);
+
+            let tile_index = Self::background_tile_index(
+                vram_bank_0,
+                bg_x,
+                bg_y,
+                map_base,
+            );
+
+            let attributes = Self::background_tile_attributes(
+                vram_bank_1,
+                bg_x,
+                bg_y,
+                map_base,
+            );
+
+            let (palette, vram_bank, flip_x, flip_y, _priority) =
+                Self::background_tile_attribute_info(attributes);
+
+            let tile_vram = if vram_bank {
+                vram_bank_1
+            } else {
+                vram_bank_0
+            };
+
+            let tile = Self::background_tile_data(
+                tile_vram,
+                tile_index,
+                tile_data_base,
+            );
+
+            let row = if flip_y {
+                7 - (bg_y & 0x07) as usize
+            } else {
+                (bg_y & 0x07) as usize
+            };
+
+            let pixel_x = if flip_x {
+                7 - (bg_x & 0x07) as usize
+            } else {
+                (bg_x & 0x07) as usize
+            };
+
+            let row_pixels = Self::decode_tile_row(&tile, row);
+            let color_index = row_pixels[pixel_x];
+
+            pixels[screen_x as usize] =
+                self.background_palette_color(palette, color_index);
+        }
+
+        let start = y * 160;
+        let end = start + 160;
+        frame[start..end].copy_from_slice(&pixels);
+    }
+
+    frame
+}
+pub fn render_background_scanline_cgb_with_priority(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+) -> ([u32; 160], [bool; 160]) {
+    let mut pixels = [0u32; 160];
+    let mut priority = [false; 160];
+
+    let map_base = if self.lcdc & 0x08 != 0 {
+        0x9C00
+    } else {
+        0x9800
+    };
+
+    let tile_data_base = if self.lcdc & 0x10 != 0 {
+        0x8000
+    } else {
+        0x9000
+    };
+
+    let bg_y = self.ly.wrapping_add(self.scy);
+
+    for screen_x in 0..160u16 {
+        let screen_x = screen_x as u8;
+        let bg_x = screen_x.wrapping_add(self.scx);
+
+        let tile_index = Self::background_tile_index(
+            vram_bank_0,
+            bg_x,
+            bg_y,
+            map_base,
+        );
+
+        let attributes = Self::background_tile_attributes(
+            vram_bank_1,
+            bg_x,
+            bg_y,
+            map_base,
+        );
+
+        let (palette, vram_bank, flip_x, flip_y, bg_priority) =
+            Self::background_tile_attribute_info(attributes);
+
+        let tile_vram = if vram_bank {
+            vram_bank_1
+        } else {
+            vram_bank_0
+        };
+
+        let tile = Self::background_tile_data(
+            tile_vram,
+            tile_index,
+            tile_data_base,
+        );
+
+        let row = if flip_y {
+            7 - (bg_y & 0x07) as usize
+        } else {
+            (bg_y & 0x07) as usize
+        };
+
+        let pixel_x = if flip_x {
+            7 - (bg_x & 0x07) as usize
+        } else {
+            (bg_x & 0x07) as usize
+        };
+
+        let row_pixels = Self::decode_tile_row(&tile, row);
+        let color_index = row_pixels[pixel_x];
+
+        pixels[screen_x as usize] =
+            self.background_palette_color(palette, color_index);
+
+        priority[screen_x as usize] =
+            bg_priority && color_index != 0;
+    }
+
+    (pixels, priority)
+}
+pub fn render_background_frame_cgb_with_priority(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+) -> ([u32; 160 * 144], [bool; 160 * 144]) {
+    let mut frame = [0u32; 160 * 144];
+    let mut priority = [false; 160 * 144];
+
+    for y in 0..144 {
+        let (line_pixels, line_priority) =
+            self.render_background_scanline_cgb_with_priority(
+                vram_bank_0,
+                vram_bank_1,
+            );
+
+        let start = y * 160;
+        let end = start + 160;
+
+        frame[start..end].copy_from_slice(&line_pixels);
+        priority[start..end].copy_from_slice(&line_priority);
+    }
+
+    (frame, priority)
+}
+
     pub fn cgb_rgb555_to_argb(color: u16) -> u32 {
         let r = ((color >> 0) & 0x1F) as u32;
         let g = ((color >> 5) & 0x1F) as u32;
@@ -459,6 +661,210 @@ pub fn background_tile_attribute_info(
     let priority = attributes & 0x80 != 0;
 
     (palette, vram_bank, flip_x, flip_y, priority)
+}
+pub fn render_background_scanline_cgb(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+) -> [u32; 160] {
+    let mut pixels = [0u32; 160];
+
+    let map_base = if self.lcdc & 0x08 != 0 {
+        0x9C00
+    } else {
+        0x9800
+    };
+
+    let tile_data_base = if self.lcdc & 0x10 != 0 {
+        0x8000
+    } else {
+        0x9000
+    };
+
+    let bg_y = self.ly.wrapping_add(self.scy);
+
+    for screen_x in 0..160u16 {
+        let screen_x = screen_x as u8;
+        let bg_x = screen_x.wrapping_add(self.scx);
+
+        let tile_index = Self::background_tile_index(
+            vram_bank_0,
+            bg_x,
+            bg_y,
+            map_base,
+        );
+
+        let attributes = Self::background_tile_attributes(
+            vram_bank_1,
+            bg_x,
+            bg_y,
+            map_base,
+        );
+
+        let (palette, vram_bank, flip_x, flip_y, _priority) =
+            Self::background_tile_attribute_info(attributes);
+
+        let tile_vram = if vram_bank {
+            vram_bank_1
+        } else {
+            vram_bank_0
+        };
+
+        let tile = Self::background_tile_data(
+            tile_vram,
+            tile_index,
+            tile_data_base,
+        );
+
+        let row = if flip_y {
+            7 - (bg_y & 0x07) as usize
+        } else {
+            (bg_y & 0x07) as usize
+        };
+
+        let pixel_x = if flip_x {
+            7 - (bg_x & 0x07) as usize
+        } else {
+            (bg_x & 0x07) as usize
+        };
+
+        let row_pixels = Self::decode_tile_row(&tile, row);
+        let color_index = row_pixels[pixel_x];
+
+        pixels[screen_x as usize] =
+            self.background_palette_color(palette, color_index);
+    }
+
+    pixels
+}
+pub fn render_window_scanline_cgb(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+    screen_y: u8,
+) -> ([u32; 160], [bool; 160]) {
+    let mut pixels = [0u32; 160];
+    let mut priority = [false; 160];
+
+    // Window musi być włączone.
+    if self.lcdc & 0x20 == 0 {
+        return (pixels, priority);
+    }
+
+    // Window pojawia się dopiero od WY.
+    if screen_y < self.wy {
+        return (pixels, priority);
+    }
+
+    let map_base = if self.lcdc & 0x40 != 0 {
+        0x9C00
+    } else {
+        0x9800
+    };
+
+    let tile_data_base = if self.lcdc & 0x10 != 0 {
+        0x8000
+    } else {
+        0x9000
+    };
+
+    // WX = 7 oznacza początek Window na ekranie.
+    let window_x_start = self.wx.wrapping_sub(7);
+
+    let window_y = screen_y.wrapping_sub(self.wy);
+
+    for screen_x in 0..160usize {
+        // WX > 166 oznacza, że Window nie jest widoczne.
+        if self.wx > 166 {
+            break;
+        }
+
+        let screen_x_u8 = screen_x as u8;
+
+        if screen_x_u8 < window_x_start {
+            continue;
+        }
+
+        let window_x = screen_x_u8.wrapping_sub(window_x_start);
+
+        let tile_index = Self::background_tile_index(
+            vram_bank_0,
+            window_x,
+            window_y,
+            map_base,
+        );
+
+        let attributes = Self::background_tile_attributes(
+            vram_bank_1,
+            window_x,
+            window_y,
+            map_base,
+        );
+
+        let (palette, vram_bank, flip_x, flip_y, bg_priority) =
+            Self::background_tile_attribute_info(attributes);
+
+        let tile_vram = if vram_bank {
+            vram_bank_1
+        } else {
+            vram_bank_0
+        };
+
+        let tile = Self::background_tile_data(
+            tile_vram,
+            tile_index,
+            tile_data_base,
+        );
+
+        let row = if flip_y {
+            7 - (window_y & 0x07) as usize
+        } else {
+            (window_y & 0x07) as usize
+        };
+
+        let pixel_x = if flip_x {
+            7 - (window_x & 0x07) as usize
+        } else {
+            (window_x & 0x07) as usize
+        };
+
+        let row_pixels = Self::decode_tile_row(&tile, row);
+        let color_index = row_pixels[pixel_x];
+
+        pixels[screen_x] =
+            self.background_palette_color(palette, color_index);
+
+        // Color 0 nie blokuje OBJ.
+        priority[screen_x] =
+            bg_priority && color_index != 0;
+    }
+
+    (pixels, priority)
+}
+pub fn render_window_frame_cgb(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+) -> ([u32; 160 * 144], [bool; 160 * 144]) {
+    let mut frame = [0u32; 160 * 144];
+    let mut priority = [false; 160 * 144];
+
+    for y in 0..144 {
+        let (line, line_priority) =
+            self.render_window_scanline_cgb(
+                vram_bank_0,
+                vram_bank_1,
+                y as u8,
+            );
+
+        let start = y * 160;
+        let end = start + 160;
+
+        frame[start..end].copy_from_slice(&line);
+        priority[start..end].copy_from_slice(&line_priority);
+    }
+
+    (frame, priority)
 }
 }
 
