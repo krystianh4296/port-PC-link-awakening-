@@ -24,3 +24,6 @@ mod cpu_cb_tests;
 
 #[cfg(test)]
 mod cpu_control_tests;
+
+#[cfg(test)]
+mod cpu_timing_tests;
