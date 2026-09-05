@@ -2784,12 +2784,13 @@ fn halt_bug_reuses_next_opcode_byte() {
 }
 #[test]
 fn cpu_cycles_drive_timer() {
-        use crate::game::memory::GameMemory;
+    use crate::game::memory::GameMemory;
     use crate::rom::{Cartridge, Rom};
-    let rom_path = std::env::var("GAMEBOY_ROM")
-        .expect("GAMEBOY_ROM must point to a .gb/.gbc ROM");
 
-    let rom = Rom::load(rom_path).expect("failed to load test ROM");
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
+    )
+    .expect("Nie można załadować ROM-u testowego");
     let cartridge = Cartridge::new(rom);
     let mut memory = GameMemory::new(cartridge);
 

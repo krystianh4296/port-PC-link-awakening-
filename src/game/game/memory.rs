@@ -153,12 +153,15 @@ mod tests {
     use crate::rom::{Cartridge, Rom};
 
     fn test_memory() -> GameMemory {
-        let rom_path = std::env::var("GAMEBOY_ROM")
-            .expect("GAMEBOY_ROM must point to a .gb/.gbc ROM");
+    use crate::rom::{Cartridge, Rom};
 
-        let rom = Rom::load(rom_path).expect("failed to load test ROM");
-        GameMemory::new(Cartridge::new(rom))
-    }
+    let rom = Rom::load(
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
+    )
+    .expect("Nie można załadować ROM-u testowego");
+
+    GameMemory::new(Cartridge::new(rom))
+}
 
     #[test]
     fn timer_overflow_sets_timer_interrupt_flag() {

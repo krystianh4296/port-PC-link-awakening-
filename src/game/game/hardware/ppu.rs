@@ -255,7 +255,24 @@ impl Ppu {
         screen_x.wrapping_add(self.scx),
         self.ly.wrapping_add(self.scy),
     )
-}
+    }
+    pub fn decode_tile_row(tile: &[u8; 16], row: usize) -> [u8; 8] {
+        let low = tile[row * 2];
+        let high = tile[row * 2 + 1];
+
+        let mut pixels = [0; 8];
+
+        for x in 0..8 {
+            let bit = 7 - x;
+
+            let lo = (low >> bit) & 1;
+            let hi = (high >> bit) & 1;
+
+            pixels[x] = (hi << 1) | lo;
+        }
+
+        pixels
+    }
 }
 
 
@@ -426,5 +443,50 @@ fn scx_scy_scroll_wraps_background_coordinates() {
 
     assert_eq!(ppu.background_pixel_position(0), (252, 4));
     assert_eq!(ppu.background_pixel_position(8), (4, 4));
+}
+#[test]
+fn decode_blank_tile_row() {
+    let tile = [0u8; 16];
+
+    assert_eq!(
+        Ppu::decode_tile_row(&tile, 0),
+        [0,0,0,0,0,0,0,0]
+    );
+}
+#[test]
+fn decode_full_tile_row() {
+    let mut tile = [0u8; 16];
+
+    tile[0] = 0xFF;
+    tile[1] = 0xFF;
+
+    assert_eq!(
+        Ppu::decode_tile_row(&tile, 0),
+        [3,3,3,3,3,3,3,3]
+    );
+}
+#[test]
+fn decode_mixed_tile_row() {
+    let mut tile = [0u8; 16];
+
+    tile[0] = 0b01010101;
+    tile[1] = 0b00110011;
+
+    assert_eq!(
+        Ppu::decode_tile_row(&tile, 0),
+        [0,1,2,3,0,1,2,3]
+    );
+}
+#[test]
+fn decode_last_tile_row() {
+    let mut tile = [0u8; 16];
+
+    tile[14] = 0xFF;
+    tile[15] = 0x00;
+
+    assert_eq!(
+        Ppu::decode_tile_row(&tile, 7),
+        [1,1,1,1,1,1,1,1]
+    );
 }
 }
