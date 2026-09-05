@@ -695,4 +695,31 @@ fn render_background_scanline_reads_tiles_and_scroll() {
         &[0, 1, 2, 3, 0, 1, 2, 3]
     );
 }
+#[test]
+fn render_background_scanline_respects_scx() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF40, 0x99);
+    ppu.write(0xFF43, 4);
+
+    let mut vram = [0u8; 0x2000];
+
+    // Tile 0 = wszystkie piksele 0.
+    // Tile 1 = wszystkie piksele 3.
+    vram[0] = 0x00;
+    vram[1] = 0x00;
+
+    vram[16] = 0xFF;
+    vram[17] = 0xFF;
+
+    // Mapa:
+    // tile 0 | tile 1
+    vram[0x1800] = 0;
+    vram[0x1801] = 1;
+
+    let pixels = ppu.render_background_scanline(&vram);
+
+    assert_eq!(&pixels[0..4], &[0, 0, 0, 0]);
+    assert_eq!(&pixels[4..12], &[3, 3, 3, 3, 3, 3, 3, 3]);
+}
 }
