@@ -44,7 +44,8 @@ fn base_40_7f_all_ld_opcodes_have_correct_cycles_and_pc() {
 #[test]
 fn base_40_7f_ld_register_matrix_copies_correct_values() {
     let mut memory = memory();
-    let values = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+    // B, C, D, E, H, L, (HL), A
+    let values = [0x12u8, 0x34, 0x56, 0x78, 0xC1, 0x00, 0xA5, 0x9A];
 
     for opcode in 0x40u8..=0x7F {
         if opcode == 0x76 {
