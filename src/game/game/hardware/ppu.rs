@@ -34,6 +34,10 @@ impl Ppu {
     }
 
     pub fn step(&mut self, cycles: u32) {
+        if self.lcdc & 0x80 == 0 {
+            return;
+        }
+
         for _ in 0..cycles {
             self.step_cycle();
         }
@@ -160,7 +164,37 @@ impl Ppu {
     pub fn write(&mut self, address: u16, value: u8) {
         match address {
             0xFF40 => {
+                let was_enabled = self.lcdc & 0x80 != 0;
+                let now_enabled = value & 0x80 != 0;
+
                 self.lcdc = value;
+
+                if was_enabled && !now_enabled {
+                    // LCD OFF:
+                    // PPU zatrzymuje pracę i wraca do stanu początkowego.
+                    self.ly = 0;
+                    self.cycle_counter = 0;
+                    self.mode = 0;
+
+                    self.stat = (self.stat & !0x07) | 0;
+                    self.vblank_interrupt = false;
+                    self.stat_interrupt = false;
+                    self.stat_irq_line = false;
+
+                    self.update_lyc_flag();
+                    self.update_stat_interrupt();
+                } else if !was_enabled && now_enabled {
+                    // LCD ON:
+                    // start od początku pierwszej linii w OAM search.
+                    self.ly = 0;
+                    self.cycle_counter = 0;
+                    self.mode = 2;
+
+                    self.stat = (self.stat & !0x03) | 2;
+
+                    self.update_lyc_flag();
+                    self.update_stat_interrupt();
+                }
             }
 
             0xFF41 => {
@@ -320,4 +354,43 @@ mod tests {
 
         assert!(!ppu.take_stat_interrupt());
     }
+    #[test]
+fn lcd_disable_stops_ppu() {
+    let mut ppu = Ppu::new();
+
+    assert_eq!(ppu.read(0xFF40) & 0x80, 0x80);
+    assert_eq!(ppu.mode(), 2);
+
+    ppu.step(80);
+    assert_eq!(ppu.mode(), 3);
+
+    ppu.write(0xFF40, 0x11);
+
+    assert_eq!(ppu.read(0xFF40) & 0x80, 0);
+    assert_eq!(ppu.ly(), 0);
+    assert_eq!(ppu.mode(), 0);
+
+    ppu.step(1000);
+
+    assert_eq!(ppu.ly(), 0);
+    assert_eq!(ppu.mode(), 0);
+}
+#[test]
+fn lcd_enable_restarts_ppu() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF40, 0x00);
+
+    assert_eq!(ppu.ly(), 0);
+    assert_eq!(ppu.mode(), 0);
+
+    ppu.write(0xFF40, 0x80);
+
+    assert_eq!(ppu.ly(), 0);
+    assert_eq!(ppu.mode(), 2);
+
+    ppu.step(80);
+
+    assert_eq!(ppu.mode(), 3);
+}
 }
