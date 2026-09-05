@@ -306,6 +306,55 @@ impl Ppu {
 
     tile
 }
+pub fn render_background_scanline(
+    &self,
+    vram: &[u8; 0x2000],
+) -> [u8; 160] {
+    let mut pixels = [0u8; 160];
+
+    let map_base = if self.lcdc & 0x08 != 0 {
+        0x9C00
+    } else {
+        0x9800
+    };
+
+    let tile_data_base = if self.lcdc & 0x10 != 0 {
+        0x8000
+    } else {
+        0x9000
+    };
+
+    for screen_x in 0..160u16 {
+        let screen_x = screen_x as u8;
+
+        let (bg_x, bg_y) = self.background_pixel_position(screen_x);
+
+        let tile_index =
+            Self::background_tile_index(
+                vram,
+                bg_x,
+                bg_y,
+                map_base,
+            );
+
+        let tile =
+            Self::background_tile_data(
+                vram,
+                tile_index,
+                tile_data_base,
+            );
+
+        let row = (bg_y & 0x07) as usize;
+        let pixel_x = (bg_x & 0x07) as usize;
+
+        let row_pixels =
+            Self::decode_tile_row(&tile, row);
+
+        pixels[screen_x as usize] = row_pixels[pixel_x];
+    }
+
+    pixels
+}
 }
 
 
@@ -615,6 +664,35 @@ fn background_tile_data_decodes_row() {
     assert_eq!(
         Ppu::decode_tile_row(&tile, 0),
         [0, 1, 2, 3, 0, 1, 2, 3]
+    );
+}
+#[test]
+fn render_background_scanline_reads_tiles_and_scroll() {
+    let mut ppu = Ppu::new();
+
+    // LCDC:
+    // bit 7 = LCD ON
+    // bit 4 = tile data 8000
+    // bit 3 = tile map 9800
+    ppu.write(0xFF40, 0x99);
+
+    let mut vram = [0u8; 0x2000];
+
+    // Tile #0 w 0x8000.
+    //
+    // Pierwszy wiersz:
+    // 00 01 02 03 00 01 02 03
+    vram[0] = 0b01010101;
+    vram[1] = 0b00110011;
+
+    // Tile #0 w mapie 0x9800.
+    vram[0x1800] = 0;
+
+    let pixels = ppu.render_background_scanline(&vram);
+
+    assert_eq!(
+        &pixels[0..8],
+        &[0, 1, 2, 3, 0, 1, 2, 3]
     );
 }
 }
