@@ -190,9 +190,7 @@ fn full_frame_background_renders_all_144_visible_scanlines() {
     let (mut vram0, vram1) = blank_vram();
     let oam = [0; 0xA0];
 
-    for offset in 0..(32 * 32) {
-        vram0[0x1800 + offset] = 0x80;
-    }
+    for offset in 0..(32 * 32) { vram0[0x1800 + offset] = 0x80; }
     for row in 0..8 {
         vram0[0x0800 + row * 2] = 0xFF;
         vram0[0x0800 + row * 2 + 1] = 0x00;
@@ -213,12 +211,10 @@ fn background_scroll_scx_selects_shifted_pixels_and_wraps_at_256_pixels() {
     let mut ppu = Ppu::new();
     let (mut vram0, vram1) = blank_vram();
 
-    // BG map 0x9800: tile 0 = color 1, tile 1 = color 2, tile 2 = color 3.
     vram0[0x1800] = 0;
     vram0[0x1801] = 1;
     vram0[0x1802] = 2;
 
-    // Tile 0 = color index 1; tile 1 = color index 2; tile 2 = color index 3.
     for row in 0..8 {
         vram0[row * 2] = 0xFF;
         vram0[row * 2 + 1] = 0x00;
@@ -231,8 +227,6 @@ fn background_scroll_scx_selects_shifted_pixels_and_wraps_at_256_pixels() {
     ppu.write(0xFF43, 8);
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
 
-    // SCX=8 skips tile 0's first 8 pixels, so the screen starts at tile 1
-    // and crosses into tile 2 at screen x=8.
     let tile1_color = Ppu::cgb_rgb555_to_argb(0x294A);
     let tile2_color = Ppu::cgb_rgb555_to_argb(0x0000);
     assert_eq!(line[0], tile1_color);
@@ -245,11 +239,7 @@ fn background_scroll_scy_selects_shifted_tile_rows_and_wraps_at_256_lines() {
     let mut ppu = Ppu::new();
     let (mut vram0, vram1) = blank_vram();
 
-    // SCY=8 maps screen y=0 to BG y=8, i.e. tile row 1, pixel row 0.
-    // The first tile in that map row is tile 0.
     vram0[0x1800 + 32] = 0;
-
-    // Tile 0: row 0 = color 1, row 1 = color 2.
     vram0[0] = 0xFF;
     vram0[1] = 0x00;
     vram0[2] = 0x00;
@@ -258,8 +248,6 @@ fn background_scroll_scy_selects_shifted_tile_rows_and_wraps_at_256_lines() {
     ppu.write(0xFF42, 8);
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
 
-    // Because SCY=8 lands on the first pixel row of tile 0 in map row 1,
-    // the expected color is tile 0's row 0 (color index 1).
     let row0_color = Ppu::cgb_rgb555_to_argb(0x56B5);
     assert_eq!(line[0], row0_color);
     assert_eq!(line[159], row0_color);
@@ -270,7 +258,6 @@ fn background_scroll_wraps_from_bottom_right_edge_to_top_left() {
     let mut ppu = Ppu::new();
     let (mut vram0, vram1) = blank_vram();
 
-    // At BG coordinate (255,255), use tile 31,31. Give it color 3.
     let map_offset = 0x1800 + 31 * 32 + 31;
     vram0[map_offset] = 31;
     let tile_offset = 31 * 16;
@@ -279,12 +266,10 @@ fn background_scroll_wraps_from_bottom_right_edge_to_top_left() {
         vram0[tile_offset + row * 2 + 1] = 0xFF;
     }
 
-    // At coordinate (0,0), use tile 0 with color 1.
     vram0[0x1800] = 0;
     vram0[0] = 0xFF;
     vram0[1] = 0x00;
 
-    // SCX/SCY=255 means screen pixel 0 samples BG coordinate 255,255.
     ppu.write(0xFF43, 255);
     ppu.write(0xFF42, 255);
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
@@ -293,4 +278,39 @@ fn background_scroll_wraps_from_bottom_right_edge_to_top_left() {
     let color1 = Ppu::cgb_rgb555_to_argb(0x7FFF);
     assert_ne!(line[0], color1);
     assert_eq!(line[0], color3);
+}
+
+#[test]
+fn sprite_rendering_reads_oam_without_changing_bg_scroll() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+    let mut oam = [0u8; 0xA0];
+
+    // Tile 1 is a solid color-1 sprite. The BG remains tile 0/color 0.
+    for row in 0..8 {
+        vram0[16 + row * 2] = 0xFF;
+        vram0[16 + row * 2 + 1] = 0x00;
+    }
+
+    // OAM coordinates are offset by (8, 16), so (8, 16) puts the sprite
+    // at screen position (0, 0).
+    oam[0] = 16;
+    oam[1] = 8;
+    oam[2] = 1;
+    oam[3] = 0;
+
+    // Enable LCD, BG and OBJ. This advances through mode 2 and mode 3,
+    // causing scanline 0 to be rendered exactly once.
+    ppu.write(0xFF40, 0x93);
+    ppu.step(252, &oam, &vram0, &vram1);
+
+    let expected_sprite_color = Ppu::cgb_rgb555_to_argb(0x56B5);
+    let framebuffer = ppu.framebuffer();
+    assert_eq!(framebuffer[0], expected_sprite_color);
+    assert_eq!(framebuffer[7], expected_sprite_color);
+    assert_eq!(framebuffer[8], Ppu::cgb_rgb555_to_argb(0x7FFF));
+
+    // SCX/SCY were not modified by sprite rendering.
+    assert_eq!(ppu.read(0xFF43), 0);
+    assert_eq!(ppu.read(0xFF42), 0);
 }
