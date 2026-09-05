@@ -401,6 +401,18 @@ impl Ppu {
         let rgb555 = low | (high << 8);
         Self::cgb_rgb555_to_argb(rgb555)
     }
+    pub fn background_tile_attributes(
+    vram_bank_1: &[u8; 0x2000],
+    bg_x: u8,
+    bg_y: u8,
+    map_base: u16,
+) -> u8 {
+    let tile_x = (bg_x / 8) as usize;
+    let tile_y = (bg_y / 8) as usize;
+    let map_offset = (map_base - 0x8000) as usize;
+    let index = map_offset + tile_y * 32 + tile_x;
+    vram_bank_1[index]
+}
 }
 
 #[cfg(test)]
@@ -699,4 +711,16 @@ mod tests {
         ppu.write(0xFF68, 2);
         assert_eq!(ppu.read(0xFF69), 0x33);
     }
+    #[test]
+fn background_tile_attributes_reads_bank_1() {
+    let mut vram = [0u8; 0x2000];
+
+    let offset = 0x1800 + 3 * 32 + 5;
+    vram[offset] = 0b1110_0111;
+
+    let attributes =
+        Ppu::background_tile_attributes(&vram, 5 * 8, 3 * 8, 0x9800);
+
+    assert_eq!(attributes, 0b1110_0111);
+}
 }
