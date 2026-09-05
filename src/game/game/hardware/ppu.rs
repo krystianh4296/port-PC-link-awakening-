@@ -59,7 +59,7 @@ impl Ppu {
                     let line = self.render_background_scanline_cgb(vram0, vram1, self.ly);
                     let start = self.ly as usize * 160;
                     self.framebuffer[start..start + 160].copy_from_slice(&line);
-                    self.render_sprites_scanline(oam, vram0, self.ly);
+                    self.render_sprites_scanline(oam, vram0, vram1, self.ly);
                 }
                 self.set_mode(0);
             }
@@ -114,7 +114,7 @@ impl Ppu {
             0xFF43 => self.scx = value,
             0xFF45 => { self.lyc = value; self.update_lyc_flag(); self.update_stat_interrupt(); }
             0xFF47 => self.bgp = value, 0xFF4A => self.wy = value, 0xFF4B => self.wx = value,
-            0xFF68 => self.bgpi,
+            0xFF68 => self.bgpi = value,
             0xFF69 => { let i = (self.bgpi & 0x3F) as usize; self.bg_palette_ram[i] = value; if self.bgpi & 0x80 != 0 { self.bgpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
             0xFF6A => self.obpi = value,
             0xFF6B => { let i = (self.obpi & 0x3F) as usize; self.obj_palette_ram[i] = value; if self.obpi & 0x80 != 0 { self.obpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
@@ -158,7 +158,7 @@ impl Ppu {
         0xFF000000 | r << 16 | g << 8 | b
     }
     pub fn background_palette_color(&self, palette: u8, index: u8) -> u32 {
-        let base = palette as usize * 8 + index as usize * 2; let color = self.bg_palette_ram[base] as u16 | (self.bg_palette_ram[base+1] as u16) << 8; Self::cgb_rgb555_to_argb(color)
+        let base = palette as usize * 8 + index as usize * 2; let color = self.bg_palette_ram[base] as u16 | ((self.bg_palette_ram[base+1] as u16) << 8); Self::cgb_rgb555_to_argb(color)
     }
     pub fn apply_bgp_palette(&self, color_index: u8) -> u8 { let shift = (color_index & 0x03) * 2; (self.bgp >> shift) & 0x03 }
 
@@ -189,8 +189,7 @@ impl Ppu {
         let bg_y = (y as usize + self.scy as usize) & 0xFF;
         let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
-        let tile_x = bg_x >> 3;
-        let tile_y = bg_y >> 3;
+        let tile_x = bg_x >> 3; let tile_y = bg_y >> 3;
         let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
         let tile_index = vram0[map_index];
         let attr = vram1[map_index];
@@ -208,14 +207,11 @@ impl Ppu {
         Self::cgb_rgb555_to_argb(color)
     }
 
-    fn render_sprites_scanline(&mut self, oam: &[u8; 0xA0], vram0: &[u8; 0x2000], line: u8) {
+    fn render_sprites_scanline(&mut self, oam: &[u8; 0xA0], vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], line: u8) {
         if self.lcdc & 0x02 == 0 { return; }
-
         const WIDTH: usize = 160;
         let sprite_height = if self.lcdc & 0x04 != 0 { 16usize } else { 8usize };
 
-        // Match the working debug renderer: process OAM from 39 down to 0,
-        // so a lower OAM index wins when sprites overlap.
         for index in (0..40).rev() {
             let base = index * 4;
             let y = oam[base] as i32;
@@ -224,21 +220,17 @@ impl Ppu {
             let attrs = oam[base + 3];
             let sprite_y = y - 16;
             let sprite_x = x - 8;
-
             if sprite_y > line as i32 || sprite_y + sprite_height as i32 <= line as i32 { continue; }
 
             let flip_y = attrs & 0x40 != 0;
             let flip_x = attrs & 0x20 != 0;
             let behind_bg = attrs & 0x80 != 0;
             let palette = attrs & 0x07;
-            let bank = attrs & 0x08 != 0;
-            let tile_vram = if bank { &[][..] } else { &vram0[..] };
-            if tile_vram.is_empty() { continue; }
+            let tile_vram = if attrs & 0x08 != 0 { vram1 } else { vram0 };
 
             let row = (line as i32 - sprite_y) as usize;
             let sprite_row = if flip_y { sprite_height - 1 - row } else { row };
             if sprite_row >= sprite_height { continue; }
-
             let tile_id = if sprite_height == 16 {
                 (tile_index & 0xFE).wrapping_add(if sprite_row >= 8 { 1 } else { 0 })
             } else { tile_index };
@@ -255,11 +247,8 @@ impl Ppu {
                 let bit = 7 - sprite_col;
                 let color_id = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
                 if color_id == 0 { continue; }
-
                 let sx = screen_x as usize;
-                if behind_bg && self.background_color_index_at(vram0, & [0u8; 0x2000], sx, line) != 0 {
-                    continue;
-                }
+                if behind_bg && self.background_color_index_at(vram0, vram1, sx, line) != 0 { continue; }
                 self.framebuffer[line as usize * WIDTH + sx] = self.obj_palette_color(palette, color_id);
             }
         }
