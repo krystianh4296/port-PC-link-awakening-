@@ -186,3 +186,32 @@ fn background_map_tile_80_uses_vram_8800_in_unsigned_mode() {
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
     assert!(line.iter().all(|&pixel| pixel != 0xFF000000));
 }
+
+#[test]
+fn full_frame_background_renders_all_144_visible_scanlines() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    // Reproduce the relevant layout observed in the Zelda graphics
+    // initialization: BG map 0x9800 points at tile 0x80, whose data starts
+    // at 0x8800 in unsigned tile-addressing mode.
+    for offset in 0..(32 * 32) {
+        vram0[0x1800 + offset] = 0x80;
+    }
+    for row in 0..8 {
+        vram0[0x0800 + row * 2] = 0xFF;
+        vram0[0x0800 + row * 2 + 1] = 0x00;
+    }
+
+    // 144 visible lines = 144 * 456 cycles. The PPU renders each line while
+    // entering mode 0, then enters VBlank at LY=144.
+    ppu.step(456 * 144, &oam, &vram0, &vram1);
+
+    assert_eq!(ppu.ly(), 144);
+    assert_eq!(ppu.mode(), 1);
+    assert!(ppu.frame_ready());
+
+    let framebuffer = ppu.framebuffer();
+    assert!(framebuffer.iter().all(|&pixel| pixel != 0xFF000000));
+}
