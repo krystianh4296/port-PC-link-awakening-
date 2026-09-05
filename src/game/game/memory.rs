@@ -57,7 +57,6 @@ impl GameMemory {
 
     pub fn cartridge(&self) -> &Cartridge { &self.cartridge }
     pub fn cartridge_mut(&mut self) -> &mut Cartridge { &mut self.cartridge }
-
     pub fn framebuffer(&self) -> &[u32; 160 * 144] { self.ppu.framebuffer() }
     pub fn frame_ready(&self) -> bool { self.ppu.frame_ready() }
     pub fn take_frame_ready(&mut self) -> bool { self.ppu.take_frame_ready() }
@@ -83,7 +82,7 @@ impl GameMemory {
             0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F |
             0xFF70..=0xFF7F => self.io[(address - 0xFF00) as usize],
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize],
-            0xFFFF => self.interrupt.read_ie(value),
+            0xFFFF => self.interrupt.read_ie(),
         }
     }
 
@@ -93,18 +92,13 @@ impl GameMemory {
             0x8000..=0x9FFF => {
                 let bank = (self.vram_bank & 0x01) as usize;
                 self.vram[bank][(address - 0x8000) as usize] = value;
-
                 self.vram_write_count += 1;
                 if value != 0 { self.vram_nonzero_write_count += 1; }
                 if address >= 0x9800 { self.bg_map_write_count += 1; }
                 self.last_vram_write = Some((address, value, bank as u8));
-
                 if self.vram_first_writes_logged < 50 {
                     self.vram_first_writes_logged += 1;
-                    println!(
-                        "VRAM WRITE #{}: addr={:04X} value={:02X} bank={}",
-                        self.vram_first_writes_logged, address, value, bank
-                    );
+                    println!("VRAM WRITE #{}: addr={:04X} value={:02X} bank={}", self.vram_first_writes_logged, address, value, bank);
                 }
             }
             0xC000..=0xDFFF => self.wram[(address - 0xC000) as usize] = value,
@@ -154,19 +148,15 @@ impl GameMemory {
     pub fn step(&mut self, cycles: u32) {
         self.timer.step(cycles);
         if self.timer.take_interrupt() { self.interrupt.request(2); }
-
         self.ppu.step(cycles, &self.oam, &self.vram[0], &self.vram[1]);
         if self.ppu.take_vblank_interrupt() { self.interrupt.request(0); }
         if self.ppu.take_stat_interrupt() { self.interrupt.request(1); }
-
         self.serial.step(cycles);
         if self.serial.take_interrupt() { self.interrupt.request(3); }
         if self.joypad.take_interrupt() { self.interrupt.request(4); }
     }
 
-    pub fn background_tile_attributes(
-        vram_bank_1: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16,
-    ) -> u8 {
+    pub fn background_tile_attributes(vram_bank_1: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
         let tile_x = (bg_x / 8) as usize;
         let tile_y = (bg_y / 8) as usize;
         let map_offset = (map_base - 0x8000) as usize;
@@ -182,9 +172,7 @@ impl GameMemory {
         println!("PPU REGISTER WRITES (FF40-FF47, FF68-FF6B): {}", self.ppu_register_write_count);
         println!("VRAM BANK SELECT WRITES (FF4F): {}", self.vram_bank_write_count);
         match self.last_vram_write {
-            Some((address, value, bank)) => println!(
-                "LAST VRAM WRITE: addr={:04X} value={:02X} bank={}", address, value, bank
-            ),
+            Some((address, value, bank)) => println!("LAST VRAM WRITE: addr={:04X} value={:02X} bank={}", address, value, bank),
             None => println!("LAST VRAM WRITE: none"),
         }
         println!("========================");
