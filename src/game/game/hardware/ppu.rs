@@ -137,9 +137,19 @@ impl Ppu {
         let address = if base == 0x8000 { 0x8000u16 + tile_index as u16 * 16 } else { (0x9000i32 + tile_index as i8 as i32 * 16) as u16 };
         let offset = (address - 0x8000) as usize; let mut tile = [0; 16]; tile.copy_from_slice(&vram[offset..offset + 16]); tile
     }
+
     pub fn decode_tile_row(tile: &[u8; 16], row: usize) -> [u8; 8] {
-        let lo = tile[row * 2]; let hi = tile[row * 2 + 1]; std::array::from_fn(|x| ((hi >> (7-x)) & 1) << 1 | ((lo >> (7-x)) & 1))
+        let lo = tile[row * 2];
+        let hi = tile[row * 2 + 1];
+
+        std::array::from_fn(|x| {
+            let bit = 7 - x;
+            let low_bit = (lo >> bit) & 1;
+            let high_bit = (hi >> bit) & 1;
+            (high_bit << 1) | low_bit
+        })
     }
+
     pub fn background_tile_attributes(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 { Self::background_tile_index(vram, bg_x, bg_y, map_base) }
     pub fn background_tile_attribute_info(a: u8) -> (u8, bool, bool, bool, bool) { (a & 7, a & 8 != 0, a & 0x20 != 0, a & 0x40 != 0, a & 0x80 != 0) }
     pub fn cgb_rgb555_to_argb(color: u16) -> u32 {
