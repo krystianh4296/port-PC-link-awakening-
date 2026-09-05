@@ -27,6 +27,7 @@ impl Game {
     }
 
     pub fn step(&mut self) -> u32 {
+        self.memory.set_cpu_pc(self.cpu.pc);
         let cycles = self.cpu.step(&mut self.memory);
         self.memory.step(cycles);
         cycles
