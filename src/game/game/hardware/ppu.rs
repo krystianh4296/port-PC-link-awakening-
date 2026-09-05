@@ -2,6 +2,15 @@
 #[derive(Debug, Clone, Copy)]
 pub struct WindowScanline {
     pub pixels: [u32; 160],
+    pub color_index: [u8; 160],
+    pub priority: [bool; 160],
+    pub visible: [bool; 160],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BgWindowScanline {
+    pub pixels: [u32; 160],
+    pub color_index: [u8; 160],
     pub priority: [bool; 160],
     pub visible: [bool; 160],
 }
@@ -55,6 +64,9 @@ pub struct Ppu {
     wy: u8,
     window_line: u8,
 
+    framebuffer: [u32; 160 * 144],
+    frame_ready: bool,
+
     // CGB BG/OBJ palette RAM.
     bg_palette_ram: [u8; 64],
     obj_palette_ram: [u8; 64],
@@ -66,7 +78,8 @@ pub struct Ppu {
 
     vblank_interrupt: bool,
     stat_interrupt: bool,
-    stat_irq_line: bool,    
+    stat_irq_line: bool,   
+     
 }
 
 impl Ppu {
@@ -81,6 +94,8 @@ impl Ppu {
             wx: 0,
             wy: 0,
             window_line: 0,
+            framebuffer: [0xFF000000; 160 * 144],
+            frame_ready: false,
             bg_palette_ram: [0; 64],
             obj_palette_ram: [0; 64],
             bgpi: 0,
@@ -93,17 +108,33 @@ impl Ppu {
         }
     }
 
-    pub fn step(&mut self, cycles: u32) {
+    pub fn step(
+        &mut self,
+        cycles: u32,
+        oam: &[u8; 0xA0],
+        vram_bank_0: &[u8; 0x2000],
+        vram_bank_1: &[u8; 0x2000],
+    ) {
         if self.lcdc & 0x80 == 0 {
             return;
         }
 
         for _ in 0..cycles {
-            self.step_cycle();
+            self.step_cycle(
+                oam,
+                vram_bank_0,
+                vram_bank_1,
+            );
         }
     }
 
-    fn step_cycle(&mut self) {
+    fn step_cycle(
+        &mut self,
+        oam: &[u8; 0xA0],
+        vram_bank_0: &[u8; 0x2000],
+        vram_bank_1: &[u8; 0x2000],
+    ) {
+        let _ = vram_bank_1;
         self.cycle_counter += 1;
 
         match self.mode {
@@ -116,6 +147,7 @@ impl Ppu {
             3 => {
                 if self.cycle_counter >= 172 {
                     self.cycle_counter = 0;
+
                     self.set_mode(0);
                 }
             }
@@ -733,16 +765,18 @@ pub fn render_window_scanline_cgb(
     let mut pixels = [0u32; 160];
     let mut priority = [false; 160];
     let mut visible = [false; 160];
+    let mut color_indices = [0u8; 160];
 
     // Window musi być włączone i widoczne na tej linii.
     let window_y = match self.window_line_for_scanline(screen_y) {
         Some(line) => line,
         None => {
             return WindowScanline {
-                pixels,
-                priority,
-                visible,
-            };
+            pixels,
+            color_index: color_indices,
+            priority,
+            visible,
+        };
         }
     };
 
@@ -765,6 +799,7 @@ pub fn render_window_scanline_cgb(
     if self.wx > 166 {
         return WindowScanline {
             pixels,
+            color_index: color_indices,
             priority,
             visible,
         };
@@ -823,13 +858,13 @@ pub fn render_window_scanline_cgb(
         let row_pixels = Self::decode_tile_row(&tile, row);
         let color_index = row_pixels[pixel_x];
 
+        color_indices[screen_x] = color_index;
+
         pixels[screen_x] =
             self.background_palette_color(palette, color_index);
 
-        // Window pixel istnieje również wtedy, gdy color_index == 0.
         visible[screen_x] = true;
 
-        // CGB BG priority: kolor 0 nie aktywuje blokowania OBJ.
         priority[screen_x] =
             visible[screen_x]
                 && bg_priority
@@ -838,6 +873,7 @@ pub fn render_window_scanline_cgb(
 
     WindowScanline {
         pixels,
+        color_index: color_indices,
         priority,
         visible,
     }
@@ -957,12 +993,305 @@ pub fn sprite_visible_on_line(
     sprite: &Sprite,
     screen_y: u8,
 ) -> bool {
-    let height = self.obj_height();
+    let height = self.obj_height() as i16;
 
-    let sprite_y = sprite.y.wrapping_sub(16);
+    let sprite_y = sprite.y as i16 - 16;
+    let screen_y = screen_y as i16;
 
     screen_y >= sprite_y
-        && screen_y < sprite_y.wrapping_add(height)
+        && screen_y < sprite_y + height
+}
+pub fn obj_palette_color(
+    &self,
+    palette: usize,
+    color_index: u8,
+) -> u32 {
+    let base = palette * 8 + (color_index as usize) * 2;
+
+    let low = self.obj_palette_ram[base] as u16;
+    let high = self.obj_palette_ram[base + 1] as u16;
+
+    let rgb555 = low | (high << 8);
+
+    Self::cgb_rgb555_to_argb(rgb555)
+}
+pub fn render_sprite_scanline_cgb(
+    &self,
+    sprite: &Sprite,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+    screen_y: u8,
+) -> ([u32; 160], [bool; 160]) {
+    let mut pixels = [0u32; 160];
+    let mut visible = [false; 160];
+
+    let height = self.obj_height();
+
+    if !self.sprite_visible_on_line(sprite, screen_y) {
+        return (pixels, visible);
+    }
+
+    let sprite_y = sprite.y.wrapping_sub(16);
+    let sprite_x = sprite.x.wrapping_sub(8);
+
+    let mut line = screen_y.wrapping_sub(sprite_y);
+
+    if sprite.y_flip() {
+        line = height - 1 - line;
+    }
+
+    let tile_index = if height == 16 {
+        sprite.tile & 0xFE
+    } else {
+        sprite.tile
+    };
+
+    let tile_vram = if sprite.vram_bank() == 1 {
+        vram_bank_1
+    } else {
+        vram_bank_0
+    };
+
+    let tile_offset =
+        (tile_index as usize) * 16 + (line as usize) * 2;
+
+    if tile_offset + 1 >= 0x2000 {
+        return (pixels, visible);
+    }
+
+    let tile = [
+        tile_vram[tile_offset],
+        tile_vram[tile_offset + 1],
+    ];
+
+    for pixel_x in 0..8u8 {
+        let source_x = if sprite.x_flip() {
+            7 - pixel_x
+        } else {
+            pixel_x
+        };
+
+        let bit = 7 - source_x;
+
+        let color_index =
+            ((tile[0] >> bit) & 1)
+            | (((tile[1] >> bit) & 1) << 1);
+
+        // CGB OBJ color 0 jest transparentny.
+        if color_index == 0 {
+            continue;
+        }
+
+        let screen_x = sprite_x.wrapping_add(pixel_x);
+
+        if screen_x >= 160 {
+            continue;
+        }
+
+        pixels[screen_x as usize] =
+            self.obj_palette_color(
+                sprite.cgb_palette(),
+                color_index,
+            );
+
+        visible[screen_x as usize] = true;
+    }
+
+    (pixels, visible)
+}
+pub fn render_obj_scanline_cgb(
+    &self,
+    oam: &[u8; 0xA0],
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+    screen_y: u8,
+) -> ([u32; 160], [bool; 160], [bool; 160]) {
+    let mut pixels = [0u32; 160];
+    let mut visible = [false; 160];
+    let mut priority = [false; 160];
+
+    let sprites = self.read_sprites(oam);
+
+    let mut selected = [0usize; 10];
+    let mut selected_count = 0;
+
+    // OAM scan: wybieramy pierwsze 10 sprite'ów
+    // znajdujących się na aktualnej linii.
+    for index in 0..40 {
+        let sprite = &sprites[index];
+
+        if self.sprite_visible_on_line(sprite, screen_y) {
+            if selected_count < 10 {
+                selected[selected_count] = index;
+                selected_count += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // W CGB wcześniejszy wpis OAM ma wyższy priorytet.
+    for selected_index in 0..selected_count {
+        let sprite_index = selected[selected_index];
+        let sprite = &sprites[sprite_index];
+
+        let (sprite_pixels, sprite_visible) =
+            self.render_sprite_scanline_cgb(
+                sprite,
+                vram_bank_0,
+                vram_bank_1,
+                screen_y,
+            );
+
+        for x in 0..160 {
+            if !sprite_visible[x] {
+                continue;
+            }
+
+            // Pierwszy nieprzezroczysty piksel z wybranego
+            // sprite'a wygrywa z późniejszym sprite'em.
+            if visible[x] {
+                continue;
+            }
+
+            pixels[x] = sprite_pixels[x];
+            visible[x] = true;
+            priority[x] = sprite.priority();
+        }
+    }
+
+    (pixels, visible, priority)
+}
+
+pub fn render_bg_window_scanline_cgb_with_priority(
+    &self,
+    vram_bank_0: &[u8; 0x2000],
+    vram_bank_1: &[u8; 0x2000],
+    screen_y: u8,
+) -> BgWindowScanline {
+    let mut result = BgWindowScanline {
+        pixels: [0u32; 160],
+        color_index: [0u8; 160],
+        priority: [false; 160],
+        visible: [false; 160],
+    };
+
+    // BG
+    let bg_y = screen_y.wrapping_add(self.scy);
+
+    let map_base = if self.lcdc & 0x08 != 0 {
+        0x9C00
+    } else {
+        0x9800
+    };
+
+    let tile_data_base = if self.lcdc & 0x10 != 0 {
+        0x8000
+    } else {
+        0x9000
+    };
+
+    for screen_x in 0..160usize {
+        let sx = screen_x as u8;
+        let bg_x = sx.wrapping_add(self.scx);
+
+        let tile_index = Self::background_tile_index(
+            vram_bank_0,
+            bg_x,
+            bg_y,
+            map_base,
+        );
+
+        let attributes = Self::background_tile_attributes(
+            vram_bank_1,
+            bg_x,
+            bg_y,
+            map_base,
+        );
+
+        let (palette, vram_bank, flip_x, flip_y, bg_priority) =
+            Self::background_tile_attribute_info(attributes);
+
+        let tile_vram = if vram_bank {
+            vram_bank_1
+        } else {
+            vram_bank_0
+        };
+
+        let tile = Self::background_tile_data(
+            tile_vram,
+            tile_index,
+            tile_data_base,
+        );
+
+        let row = if flip_y {
+            7 - (bg_y & 0x07) as usize
+        } else {
+            (bg_y & 0x07) as usize
+        };
+
+        let pixel_x = if flip_x {
+            7 - (bg_x & 0x07) as usize
+        } else {
+            (bg_x & 0x07) as usize
+        };
+
+        let row_pixels = Self::decode_tile_row(&tile, row);
+        let color_index = row_pixels[pixel_x];
+
+        result.pixels[screen_x] =
+            self.background_palette_color(palette, color_index);
+
+        result.color_index[screen_x] = color_index;
+
+        result.priority[screen_x] =
+            bg_priority && color_index != 0;
+
+        result.visible[screen_x] = true;
+    }
+
+    // Window replaces BG wherever it is visible.
+    let window = self.render_window_scanline_cgb(
+        vram_bank_0,
+        vram_bank_1,
+        screen_y,
+    );
+
+    for x in 0..160 {
+        if !window.visible[x] {
+            continue;
+        }
+
+        result.pixels[x] = window.pixels[x];
+
+        result.color_index[x] = {
+            // WindowScanline currently does not expose color_index.
+            // Derive it from the palette-independent priority state
+            // in the next revision if exact color-0 handling is required.
+            0
+        };
+
+        result.priority[x] = window.priority[x];
+        result.visible[x] = true;
+    }
+
+    result
+}
+pub fn framebuffer(&self) -> &[u32; 160 * 144] {
+    &self.framebuffer
+}
+
+pub fn frame_ready(&self) -> bool {
+    self.frame_ready
+}
+
+pub fn take_frame(&mut self) -> Option<[u32; 160 * 144]> {
+    if !self.frame_ready {
+        return None;
+    }
+
+    self.frame_ready = false;
+    Some(self.framebuffer)
 }
 }
 

@@ -151,7 +151,12 @@ impl GameMemory {
             self.interrupt.request(2);
         }
 
-        self.ppu.step(cycles);
+        self.ppu.step(
+            cycles,
+            &self.oam,
+            &self.vram[0],
+            &self.vram[1],
+        );
 
         if self.ppu.take_vblank_interrupt() {
             self.interrupt.request(0);
