@@ -109,9 +109,9 @@ impl Ppu {
             0xFF42 => self.scy = value, 0xFF43 => self.scx = value,
             0xFF45 => { self.lyc = value; self.update_lyc_flag(); self.update_stat_interrupt(); }
             0xFF47 => self.bgp = value, 0xFF4A => self.wy = value, 0xFF4B => self.wx = value,
-            0xFF68 => self.bgpi,
+            0xFF68 => self.bgpi = value,
             0xFF69 => { let i = (self.bgpi & 0x3F) as usize; self.bg_palette_ram[i] = value; if self.bgpi & 0x80 != 0 { self.bgpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
-            0xFF6A => self.obpi,
+            0xFF6A => self.obpi = value,
             0xFF6B => { let i = (self.obpi & 0x3F) as usize; self.obj_palette_ram[i] = value; if self.obpi & 0x80 != 0 { self.obpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
             _ => {}
         }
