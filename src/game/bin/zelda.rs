@@ -2,6 +2,7 @@ use gameboy_port::game::Game;
 use gameboy_port::audio::Audio;
 use gameboy_port::input::Input;
 use gameboy_port::rendering::renderer::Renderer;
+use gameboy_port::rendering::tile_viewer::TileViewer;
 use gameboy_port::rom::Rom;
 
 use std::time::{Duration, Instant};
@@ -43,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut game = Game::new(rom);
     game.set_audio(Audio::new());
     let mut renderer = Renderer::new();
+    let mut tile_viewer = TileViewer::new();
     let mut input = Input::new();
     let mut diagnostics_printed = false;
 
@@ -69,6 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         renderer.copy_frame(game.framebuffer());
         game.take_frame_ready();
         renderer.draw();
+        tile_viewer.update(&mut game);
 
         let elapsed = frame_start.elapsed();
         if elapsed < FRAME_TIME { std::thread::sleep(FRAME_TIME - elapsed); }
