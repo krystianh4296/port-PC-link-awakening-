@@ -132,8 +132,11 @@ fn base_c0_ff_conditional_jumps_calls_and_returns_cover_both_paths() {
 
         if taken {
             set_taken_flags(&mut cpu, opcode);
-            memory.write(0xC1FE, 0x78);
-            memory.write(0xC1FF, 0x56);
+            if matches!(opcode, 0xC0 | 0xC8 | 0xD0 | 0xD8) {
+                cpu.sp = 0xC1FE;
+                memory.write(0xC1FE, 0x78);
+                memory.write(0xC1FF, 0x56);
+            }
         } else {
             set_not_taken_flags(&mut cpu, opcode);
         }
