@@ -6,3 +6,6 @@ pub mod joypad;
 
 #[cfg(test)]
 mod ppu_tests;
+
+#[cfg(test)]
+mod ppu_scroll_regression_tests;
