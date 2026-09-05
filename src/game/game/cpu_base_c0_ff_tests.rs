@@ -19,13 +19,9 @@ fn cpu_at(opcode: u8) -> (Cpu, GameMemory) {
 
 fn set_not_taken_flags(cpu: &mut Cpu, opcode: u8) {
     cpu.f = match opcode {
-        // NZ condition: make Z=1.
         0xC0 | 0xC2 | 0xC4 => 0x80,
-        // Z condition: make Z=0.
         0xC8 | 0xCA | 0xCC => 0x00,
-        // NC condition: make C=1.
         0xD0 | 0xD2 | 0xD4 => 0x10,
-        // C condition: make C=0.
         0xD8 | 0xDA | 0xDC => 0x00,
         _ => 0x00,
     };
@@ -33,13 +29,9 @@ fn set_not_taken_flags(cpu: &mut Cpu, opcode: u8) {
 
 fn set_taken_flags(cpu: &mut Cpu, opcode: u8) {
     cpu.f = match opcode {
-        // NZ condition: make Z=0.
         0xC0 | 0xC2 | 0xC4 => 0x00,
-        // Z condition: make Z=1.
         0xC8 | 0xCA | 0xCC => 0x80,
-        // NC condition: make C=0.
         0xD0 | 0xD2 | 0xD4 => 0x00,
-        // C condition: make C=1.
         0xD8 | 0xDA | 0xDC => 0x10,
         _ => 0x00,
     };
