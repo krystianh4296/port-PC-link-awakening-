@@ -215,3 +215,81 @@ fn full_frame_background_renders_all_144_visible_scanlines() {
     let framebuffer = ppu.framebuffer();
     assert!(framebuffer.iter().all(|&pixel| pixel != 0xFF000000));
 }
+
+#[test]
+fn background_scroll_scx_selects_shifted_pixels_and_wraps_at_256_pixels() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+
+    // BG map 0x9800: tile 0 has color 1, tile 1 has color 2.
+    vram0[0x1800] = 0;
+    vram0[0x1801] = 1;
+    // Tile 0 = color index 1; tile 1 = color index 2.
+    for row in 0..8 {
+        vram0[row * 2] = 0xFF;
+        vram0[row * 2 + 1] = 0x00;
+        vram0[16 + row * 2] = 0x00;
+        vram0[16 + row * 2 + 1] = 0xFF;
+    }
+
+    ppu.write(0xFF43, 8);
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+
+    // SCX=8 skips the first tile's first 8 pixels, so the screen begins
+    // with tile 1 (color index 2). The BG coordinate wraps modulo 256.
+    let tile1_color = Ppu::cgb_rgb555_to_argb(0x294A);
+    assert_eq!(line[0], tile1_color);
+    assert_eq!(line[7], tile1_color);
+    assert_eq!(line[8], tile1_color);
+}
+
+#[test]
+fn background_scroll_scy_selects_shifted_tile_rows_and_wraps_at_256_lines() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+
+    vram0[0x1800] = 0;
+    // Distinct colors per tile row: row 0 = color 1, row 1 = color 2.
+    vram0[0] = 0xFF;
+    vram0[1] = 0x00;
+    vram0[2] = 0x00;
+    vram0[3] = 0xFF;
+
+    ppu.write(0xFF42, 8);
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+
+    // SCY=8 moves the rendered line to tile row 1.
+    let row1_color = Ppu::cgb_rgb555_to_argb(0x294A);
+    assert_eq!(line[0], row1_color);
+    assert_eq!(line[159], row1_color);
+}
+
+#[test]
+fn background_scroll_wraps_from_bottom_right_edge_to_top_left() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+
+    // At BG coordinate (255,255), use tile 31,31. Give it color 3.
+    let map_offset = 0x1800 + 31 * 32 + 31;
+    vram0[map_offset] = 31;
+    let tile_offset = 31 * 16;
+    for row in 0..8 {
+        vram0[tile_offset + row * 2] = 0xFF;
+        vram0[tile_offset + row * 2 + 1] = 0xFF;
+    }
+
+    // At coordinate (0,0), use tile 0 with color 1.
+    vram0[0x1800] = 0;
+    vram0[0] = 0xFF;
+    vram0[1] = 0x00;
+
+    // SCX/SCY=255 means screen pixel 0 samples BG coordinate 255,255.
+    ppu.write(0xFF43, 255);
+    ppu.write(0xFF42, 255);
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+
+    let color3 = Ppu::cgb_rgb555_to_argb(0x0000);
+    let color1 = Ppu::cgb_rgb555_to_argb(0x7FFF);
+    assert_ne!(line[0], color1);
+    assert_eq!(line[0], color3);
+}
