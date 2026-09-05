@@ -10,8 +10,12 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> Self {
+        Self::with_title("Zelda - Native Rust")
+    }
+
+    pub fn with_title(title: &str) -> Self {
         let window = Window::new(
-            "Zelda - Native Rust",
+            title,
             WIDTH,
             HEIGHT,
             WindowOptions {

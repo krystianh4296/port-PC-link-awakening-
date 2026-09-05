@@ -15,6 +15,14 @@ path = "src/debug/main.rs"
 name = "zelda"
 path = "src/game/bin/zelda.rs"
 
+[[bin]]
+name = "native-zelda"
+path = "src/game/bin/native_zelda.rs"
+
+[[bin]]
+name = "rom-boot-probe"
+path = "src/game/bin/rom_boot_probe.rs"
+
 [dependencies]
 minifb = "0.27"
 rodio = { version = "0.22", features = ["playback"] }

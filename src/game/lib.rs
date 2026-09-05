@@ -1,5 +1,9 @@
+pub mod audio;
+#[path = "../debug/apu.rs"]
+pub mod apu;
 pub mod game;
 pub mod graphics;
 pub mod input;
+pub mod native;
 pub mod rendering;
 pub mod rom;

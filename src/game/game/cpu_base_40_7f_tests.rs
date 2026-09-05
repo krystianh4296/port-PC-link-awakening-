@@ -1,4 +1,4 @@
-use crate::game::game::{Cpu, GameMemory};
+use crate::game::{Cpu, GameMemory};
 use crate::rom::{Cartridge, Rom};
 
 fn memory() -> GameMemory {

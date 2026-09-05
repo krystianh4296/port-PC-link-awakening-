@@ -1,5 +1,6 @@
 use crate::game::{Cpu, GameMemory};
 use crate::input::Input;
+use crate::audio::Audio;
 use crate::rom::{Cartridge, Rom};
 
 pub struct Game {
@@ -11,7 +12,7 @@ pub struct Game {
 impl Game {
     pub fn new(rom: Rom) -> Self {
         let mut cpu = Cpu::new();
-        cpu.reset();
+        cpu.reset_cgb();
 
         Self {
             running: true,
@@ -21,8 +22,17 @@ impl Game {
     }
 
     pub fn update(&mut self, _input: &Input, _delta_time: f32) {
+        self.apply_input(_input);
         while !self.memory.frame_ready() {
             self.step();
+        }
+    }
+
+    pub fn apply_input(&mut self, input: &Input) {
+        use crate::input::GameButton;
+        for button in [GameButton::Right, GameButton::Left, GameButton::Up, GameButton::Down,
+            GameButton::A, GameButton::B, GameButton::Select, GameButton::Start] {
+            self.memory.set_joypad_button(button as u8, input.is_pressed(button));
         }
     }
 
@@ -36,6 +46,7 @@ impl Game {
     pub fn is_running(&self) -> bool { self.running }
     pub fn memory(&self) -> &GameMemory { &self.memory }
     pub fn memory_mut(&mut self) -> &mut GameMemory { &mut self.memory }
+    pub fn set_audio(&mut self, audio: Audio) { self.memory.set_audio(audio); }
     pub fn cpu(&self) -> &Cpu { &self.cpu }
     pub fn framebuffer(&self) -> &[u32; 160 * 144] { self.memory.framebuffer() }
     pub fn frame_ready(&self) -> bool { self.memory.frame_ready() }

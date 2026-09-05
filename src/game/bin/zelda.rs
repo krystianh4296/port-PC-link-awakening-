@@ -1,4 +1,5 @@
 use gameboy_port::game::Game;
+use gameboy_port::audio::Audio;
 use gameboy_port::input::Input;
 use gameboy_port::rendering::renderer::Renderer;
 use gameboy_port::rom::Rom;
@@ -40,6 +41,7 @@ fn print_first_frame_diagnostics(game: &Game) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")?;
     let mut game = Game::new(rom);
+    game.set_audio(Audio::new());
     let mut renderer = Renderer::new();
     let mut input = Input::new();
     let mut diagnostics_printed = false;
@@ -50,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     while renderer.is_open() && game.is_running() {
         let frame_start = Instant::now();
         input.update(renderer.window());
+        game.apply_input(&input);
 
         while !game.frame_ready() { game.step(); }
 

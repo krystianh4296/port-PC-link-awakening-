@@ -62,6 +62,27 @@ impl Cpu {
         self.halt_bug = false;
     }
 
+    /// Stan rejestrów po zakończeniu boot ROM-u Game Boy Color.
+    ///
+    /// W szczególności A=$11 pozwala grom CGB (w tym LADX) wybrać ścieżkę
+    /// koloru i zainicjalizować CRAM zamiast palet DMG.
+    pub fn reset_cgb(&mut self) {
+        self.a = 0x11;
+        self.f = 0x80;
+        self.b = 0x00;
+        self.c = 0x00;
+        self.d = 0xFF;
+        self.e = 0x56;
+        self.h = 0x00;
+        self.l = 0x0D;
+        self.sp = 0xFFFE;
+        self.pc = 0x0100;
+        self.ime = false;
+        self.ime_pending = false;
+        self.halted = false;
+        self.halt_bug = false;
+    }
+
     pub fn af(&self) -> u16 {
         ((self.a as u16) << 8) | self.f as u16
     }
@@ -642,7 +663,9 @@ fn dec8(&mut self, memory: &mut GameMemory, index: u8) {
             // STOP 00
             0x10 => {
                 let _ = self.read_imm8(memory);
-                self.halted = true;
+                // CGB: STOP po przygotowaniu KEY1 przełącza prędkość,
+                // nie zatrzymuje programu.
+                if !memory.try_speed_switch() { self.halted = true; }
                 4
             }
 
