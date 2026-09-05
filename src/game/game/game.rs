@@ -30,6 +30,7 @@ impl Game {
     pub fn is_running(&self) -> bool { self.running }
     pub fn memory(&self) -> &GameMemory { &self.memory }
     pub fn memory_mut(&mut self) -> &mut GameMemory { &mut self.memory }
+    pub fn cpu(&self) -> &Cpu { &self.cpu }
     pub fn framebuffer(&self) -> &[u32; 160 * 144] { self.memory.framebuffer() }
     pub fn frame_ready(&self) -> bool { self.memory.frame_ready() }
     pub fn take_frame_ready(&mut self) -> bool { self.memory.take_frame_ready() }
