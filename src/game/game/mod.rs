@@ -9,3 +9,6 @@ pub use memory::GameMemory;
 
 #[cfg(test)]
 mod cpu_base_00_3f_tests;
+
+#[cfg(test)]
+mod cpu_base_40_7f_tests;
