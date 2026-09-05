@@ -32,7 +32,7 @@ impl Ppu {
             bg_palette_ram[i * 2 + 1] = (*color >> 8) as u8;
         }
         Self {
-            ly: 0, lyc: 0, lcdc: 0x91, stat: 0x80,
+            ly: 0, lyc: 0, lcdc: 0x91, stat: 0x82,
             scx: 0, scy: 0, wx: 0, wy: 0, window_line: 0,
             framebuffer: [0xFF000000; 160 * 144], frame_ready: false,
             bg_palette_ram, obj_palette_ram: [0; 64], bgpi: 0, obpi: 0,
