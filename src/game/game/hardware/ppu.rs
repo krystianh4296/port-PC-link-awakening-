@@ -128,8 +128,8 @@ impl Ppu {
 
     pub fn background_tile_index(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
         let map_offset = (map_base - 0x8000) as usize;
-        let tile_x = (bg_x as usize) / 8;
-        let tile_y = (bg_y as usize) / 8;
+        let tile_x = ((bg_x as usize) & 0xFF) >> 3;
+        let tile_y = ((bg_y as usize) & 0xFF) >> 3;
         vram[map_offset + tile_y * 32 + tile_x]
     }
 
@@ -159,16 +159,24 @@ impl Ppu {
         let mut out = [0u32; 160];
         let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
-        let by = y.wrapping_add(self.scy);
 
+        // SCX/SCY are 8-bit wrapping registers. Calculate the BG coordinate
+        // in the full 256x256 plane before selecting its tile and pixel.
         for x in 0..160usize {
-            let bx = (x as u8).wrapping_add(self.scx);
-            let tile_index = Self::background_tile_index(vram0, bx, by, map);
-            let attr = Self::background_tile_attributes(vram1, bx, by, map);
-            let (palette, bank, fx, fy, _) = Self::background_tile_attribute_info(attr);
-            let tile = Self::background_tile_data(if bank { vram1 } else { vram0 }, tile_index, base);
-            let row = if fy { 7 - (by & 7) as usize } else { (by & 7) as usize };
-            let px = if fx { 7 - (bx & 7) as usize } else { (bx & 7) as usize };
+            let bx = (x + self.scx as usize) & 0xFF;
+            let by = (y as usize + self.scy as usize) & 0xFF;
+            let tile_x = bx >> 3;
+            let tile_y = by >> 3;
+            let map_offset = (map - 0x8000) as usize;
+            let map_index = map_offset + tile_y * 32 + tile_x;
+
+            let tile_index = vram0[map_index];
+            let attr = vram1[map_index];
+            let (palette, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
+            let tile_vram = if bank { vram1 } else { vram0 };
+            let tile = Self::background_tile_data(tile_vram, tile_index, base);
+            let row = if flip_y { 7 - (by & 7) } else { by & 7 };
+            let px = if flip_x { 7 - (bx & 7) } else { bx & 7 };
             let ci = Self::decode_tile_row(&tile, row)[px];
             out[x] = self.background_palette_color(palette, ci);
         }
