@@ -1,4 +1,212 @@
-use super::*;
+use super::ppu::Ppu;
+
+fn blank_vram() -> ([u8; 0x2000], [u8; 0x2000]) {
+    ([0; 0x2000], [0; 0x2000])
+}
+
+#[test]
+fn ppu_scanline_timing_is_exact() {
+    let mut ppu = Ppu::new();
+    let (vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    assert_eq!(ppu.ly(), 0);
+    assert_eq!(ppu.mode(), 2);
+
+    ppu.step(79, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 2);
+    ppu.step(1, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 3);
+
+    ppu.step(171, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 3);
+    ppu.step(1, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 0);
+
+    ppu.step(203, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 0);
+    ppu.step(1, &oam, &vram0, &vram1);
+    assert_eq!(ppu.ly(), 1);
+    assert_eq!(ppu.mode(), 2);
+}
+
+#[test]
+fn ppu_enters_vblank_at_ly_144_and_marks_frame_ready() {
+    let mut ppu = Ppu::new();
+    let (vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    ppu.step(456 * 144, &oam, &vram0, &vram1);
+
+    assert_eq!(ppu.ly(), 144);
+    assert_eq!(ppu.mode(), 1);
+    assert!(ppu.frame_ready());
+    assert!(ppu.take_vblank_interrupt());
+    assert!(!ppu.take_vblank_interrupt());
+}
+
+#[test]
+fn frame_ready_is_consumed_without_changing_scanline() {
+    let mut ppu = Ppu::new();
+    let (vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    ppu.step(456 * 144, &oam, &vram0, &vram1);
+    assert!(ppu.take_frame_ready());
+    assert!(!ppu.take_frame_ready());
+    assert_eq!(ppu.ly(), 144);
+}
+
+#[test]
+fn lcd_disable_and_enable_reset_scanline_state() {
+    let mut ppu = Ppu::new();
+    let (vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    ppu.step(100, &oam, &vram0, &vram1);
+    ppu.write(0xFF40, 0x00);
+    assert_eq!(ppu.read(0xFF44), 0);
+    assert_eq!(ppu.mode(), 0);
+
+    ppu.step(1000, &oam, &vram0, &vram1);
+    assert_eq!(ppu.read(0xFF44), 0);
+
+    ppu.write(0xFF40, 0x91);
+    assert_eq!(ppu.read(0xFF44), 0);
+    assert_eq!(ppu.mode(), 2);
+}
+
+#[test]
+fn stat_and_lyc_registers_preserve_expected_bits() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF41, 0x78);
+    let stat = ppu.read(0xFF41);
+    assert_eq!(stat & 0x78, 0x78);
+    assert_eq!(stat & 0x80, 0x80);
+    assert_eq!(stat & 0x03, 2);
+
+    ppu.write(0xFF45, 0);
+    assert_eq!(ppu.read(0xFF41) & 0x04, 0x04);
+    ppu.write(0xFF45, 7);
+    assert_eq!(ppu.read(0xFF45), 7);
+    assert_eq!(ppu.read(0xFF41) & 0x04, 0);
+}
+
+#[test]
+fn dmg_bgp_palette_maps_all_four_color_indices() {
+    let mut ppu = Ppu::new();
+    ppu.write(0xFF47, 0b11_10_01_00);
+
+    assert_eq!(ppu.apply_bgp_palette(0), 0);
+    assert_eq!(ppu.apply_bgp_palette(1), 1);
+    assert_eq!(ppu.apply_bgp_palette(2), 2);
+    assert_eq!(ppu.apply_bgp_palette(3), 3);
+}
+
+#[test]
+fn tile_decoder_extracts_four_color_indices() {
+    let tile = [0xAA, 0x55, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+    assert_eq!(Ppu::decode_tile_row(&tile, 0), [1, 2, 1, 2, 1, 2, 1, 2]);
+    assert_eq!(Ppu::decode_tile_row(&tile, 1), [2; 8]);
+    assert_eq!(Ppu::decode_tile_row(&tile, 2), [1; 8]);
+}
+
+#[test]
+fn tile_data_supports_unsigned_and_signed_addressing() {
+    let mut vram = [0u8; 0x2000];
+    for i in 0..32 { vram[i] = i as u8; }
+
+    assert_eq!(Ppu::background_tile_data(&vram, 0, 0x8000)[0], 0);
+    assert_eq!(Ppu::background_tile_data(&vram, 1, 0x8000)[0], 16);
+
+    vram[0x0FF0] = 0xA5;
+    assert_eq!(Ppu::background_tile_data(&vram, 0xFF, 0x9000)[0], 0xA5);
+}
+
+#[test]
+fn cgb_background_attributes_decode_palette_bank_flips_and_priority() {
+    let (palette, bank, flip_x, flip_y, priority) = Ppu::background_tile_attribute_info(0xE9);
+
+    assert_eq!(palette, 1);
+    assert!(bank);
+    assert!(flip_x);
+    assert!(flip_y);
+    assert!(priority);
+}
+
+#[test]
+fn cgb_palette_autoincrement_writes_consecutive_bytes() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF68, 0x80);
+    ppu.write(0xFF69, 0x34);
+    ppu.write(0xFF69, 0x12);
+
+    ppu.write(0xFF68, 0x00);
+    assert_eq!(ppu.read(0xFF69), 0x34);
+    ppu.write(0xFF68, 0x01);
+    assert_eq!(ppu.read(0xFF69), 0x12);
+}
+
+#[test]
+fn background_scanline_reads_tile_map_and_tile_data() {
+    let ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+
+    vram0[0] = 0xFF;
+    vram0[1] = 0x00;
+    vram0[0x1800] = 0;
+
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+    assert!(line.iter().all(|&pixel| pixel != 0xFF000000));
+}
+
+#[test]
+fn background_map_tile_80_uses_vram_8800_in_unsigned_mode() {
+    let ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+
+    vram0[0x1800] = 0x80;
+    vram0[0x0800] = 0xFF;
+    vram0[0x0801] = 0x00;
+
+    assert_eq!(Ppu::background_tile_index(&vram0, 0, 0, 0x9800), 0x80);
+
+    let tile = Ppu::background_tile_data(&vram0, 0x80, 0x8000);
+    assert_eq!(tile[0], 0xFF);
+    assert_eq!(tile[1], 0x00);
+    assert_eq!(Ppu::decode_tile_row(&tile, 0), [1; 8]);
+
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+    assert!(line.iter().all(|&pixel| pixel != 0xFF000000));
+}
+
+#[test]
+fn full_frame_background_renders_all_144_visible_scanlines() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    for offset in 0..(32 * 32) {
+        vram0[0x1800 + offset] = 0x80;
+    }
+    for row in 0..8 {
+        vram0[0x0800 + row * 2] = 0xFF;
+        vram0[0x0800 + row * 2 + 1] = 0x00;
+    }
+
+    ppu.step(456 * 144, &oam, &vram0, &vram1);
+
+    assert_eq!(ppu.ly(), 144);
+    assert_eq!(ppu.mode(), 1);
+    assert!(ppu.frame_ready());
+
+    let framebuffer = ppu.framebuffer();
+    assert!(framebuffer.iter().all(|&pixel| pixel != 0xFF000000));
+}
 
 #[test]
 fn background_scroll_scx_selects_shifted_pixels_and_wraps_at_256_pixels() {
@@ -14,10 +222,8 @@ fn background_scroll_scx_selects_shifted_pixels_and_wraps_at_256_pixels() {
     for row in 0..8 {
         vram0[row * 2] = 0xFF;
         vram0[row * 2 + 1] = 0x00;
-
         vram0[16 + row * 2] = 0x00;
         vram0[16 + row * 2 + 1] = 0xFF;
-
         vram0[32 + row * 2] = 0xFF;
         vram0[32 + row * 2 + 1] = 0xFF;
     }
@@ -25,8 +231,8 @@ fn background_scroll_scx_selects_shifted_pixels_and_wraps_at_256_pixels() {
     ppu.write(0xFF43, 8);
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
 
-    // SCX=8 skips the first tile's first 8 pixels. The screen therefore
-    // begins at tile 1 and crosses into tile 2 at screen x=8.
+    // SCX=8 skips tile 0's first 8 pixels, so the screen starts at tile 1
+    // and crosses into tile 2 at screen x=8.
     let tile1_color = Ppu::cgb_rgb555_to_argb(0x294A);
     let tile2_color = Ppu::cgb_rgb555_to_argb(0x0000);
     assert_eq!(line[0], tile1_color);
@@ -39,8 +245,8 @@ fn background_scroll_scy_selects_shifted_tile_rows_and_wraps_at_256_lines() {
     let mut ppu = Ppu::new();
     let (mut vram0, vram1) = blank_vram();
 
-    // BG map 0x9800: the first entry of the second tile row uses tile 0.
-    // This is the tile selected when SCY=8 moves the screen to BG y=8.
+    // SCY=8 maps screen y=0 to BG y=8, i.e. tile row 1, pixel row 0.
+    // The first tile in that map row is tile 0.
     vram0[0x1800 + 32] = 0;
 
     // Tile 0: row 0 = color 1, row 1 = color 2.
@@ -52,8 +258,8 @@ fn background_scroll_scy_selects_shifted_tile_rows_and_wraps_at_256_lines() {
     ppu.write(0xFF42, 8);
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
 
-    // SCY=8 maps screen y=0 to BG y=8: tile row 1, pixel row 0.
-    // The selected tile is still tile 0, so its row 0 is color 1.
+    // Because SCY=8 lands on the first pixel row of tile 0 in map row 1,
+    // the expected color is tile 0's row 0 (color index 1).
     let row0_color = Ppu::cgb_rgb555_to_argb(0x56B5);
     assert_eq!(line[0], row0_color);
     assert_eq!(line[159], row0_color);
@@ -73,4 +279,18 @@ fn background_scroll_wraps_from_bottom_right_edge_to_top_left() {
         vram0[tile_offset + row * 2 + 1] = 0xFF;
     }
 
-    // The remaining tests in this file continue below.
+    // At coordinate (0,0), use tile 0 with color 1.
+    vram0[0x1800] = 0;
+    vram0[0] = 0xFF;
+    vram0[1] = 0x00;
+
+    // SCX/SCY=255 means screen pixel 0 samples BG coordinate 255,255.
+    ppu.write(0xFF43, 255);
+    ppu.write(0xFF42, 255);
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+
+    let color3 = Ppu::cgb_rgb555_to_argb(0x0000);
+    let color1 = Ppu::cgb_rgb555_to_argb(0x7FFF);
+    assert_ne!(line[0], color1);
+    assert_eq!(line[0], color3);
+}
