@@ -156,11 +156,31 @@ fn background_scanline_reads_tile_map_and_tile_data() {
     let ppu = Ppu::new();
     let (mut vram0, vram1) = blank_vram();
 
-    // Tile 0 row 0: color index 1 on all eight pixels.
     vram0[0] = 0xFF;
     vram0[1] = 0x00;
-    // BG map 0x9800 points to tile 0.
     vram0[0x1800] = 0;
+
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+    assert!(line.iter().all(|&pixel| pixel != 0xFF000000));
+}
+
+#[test]
+fn background_map_tile_80_uses_vram_8800_in_unsigned_mode() {
+    let ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+
+    // The game's BG map starts with tile 0x80. In unsigned tile mode,
+    // tile 0x80 must resolve to VRAM address 0x8800.
+    vram0[0x1800] = 0x80;
+    vram0[0x1000] = 0xFF;
+    vram0[0x1001] = 0x00;
+
+    assert_eq!(Ppu::background_tile_index(&vram0, 0, 0, 0x9800), 0x80);
+
+    let tile = Ppu::background_tile_data(&vram0, 0x80, 0x8000);
+    assert_eq!(tile[0], 0xFF);
+    assert_eq!(tile[1], 0x00);
+    assert_eq!(Ppu::decode_tile_row(&tile, 0), [1; 8]);
 
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
     assert!(line.iter().all(|&pixel| pixel != 0xFF000000));
