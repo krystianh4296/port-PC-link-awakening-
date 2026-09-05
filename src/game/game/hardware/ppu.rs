@@ -94,6 +94,12 @@ impl Ppu {
     }
 
     fn advance_line(&mut self) {
+        let previous_ly = self.ly;
+
+        if previous_ly < 144 {
+            self.advance_window_line(previous_ly);
+        }
+
         self.ly = self.ly.wrapping_add(1);
 
         if self.ly == 144 {
@@ -101,6 +107,7 @@ impl Ppu {
             self.vblank_interrupt = true;
         } else if self.ly > 153 {
             self.ly = 0;
+            self.window_line = 0;
             self.set_mode(2);
         } else if self.ly >= 144 {
             self.set_mode(1);
@@ -158,10 +165,6 @@ impl Ppu {
             0xFF43 => self.scx,
             0xFF44 => self.ly,
             0xFF45 => self.lyc,
-            0xFF46 => self.dma,
-            0xFF47 => self.bgp,
-            0xFF48 => self.obp0,
-            0xFF49 => self.obp1,
             0xFF68 => self.bgpi,
             0xFF69 => {
                 let index = (self.bgpi & 0x3F) as usize;
@@ -190,6 +193,7 @@ impl Ppu {
                     self.ly = 0;
                     self.cycle_counter = 0;
                     self.mode = 0;
+                    self.window_line = 0;
                     self.stat = (self.stat & !0x07) | 0;
                     self.vblank_interrupt = false;
                     self.stat_interrupt = false;
@@ -200,6 +204,7 @@ impl Ppu {
                     self.ly = 0;
                     self.cycle_counter = 0;
                     self.mode = 2;
+                    self.window_line = 0;
                     self.stat = (self.stat & !0x03) | 2;
                     self.update_lyc_flag();
                     self.update_stat_interrupt();
@@ -865,6 +870,33 @@ pub fn render_window_frame_cgb(
     }
 
     (frame, priority)
+}
+fn window_visible_on_line(&self, screen_y: u8) -> bool {
+    if self.lcdc & 0x20 == 0 {
+        return false;
+    }
+
+    if screen_y < self.wy {
+        return false;
+    }
+
+    if self.wx > 166 {
+        return false;
+    }
+
+    true
+}
+pub fn window_line_for_scanline(&self, screen_y: u8) -> Option<u8> {
+    if !self.window_visible_on_line(screen_y) {
+        return None;
+    }
+
+    Some(self.window_line)
+}
+fn advance_window_line(&mut self, screen_y: u8) {
+    if self.window_visible_on_line(screen_y) {
+        self.window_line = self.window_line.wrapping_add(1);
+    }
 }
 }
 
