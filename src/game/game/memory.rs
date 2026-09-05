@@ -61,9 +61,11 @@ impl GameMemory {
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00 => self.joypad.read(),
             0xFF01..=0xFF02 => self.serial.read(address),
-            0xFF40 | 0xFF41 | 0xFF42 | 0xFF43 | 0xFF44 | 0xFF45 | 0xFF47 => {
-                self.ppu.read(address)
-            }
+            0xFF40..=0xFF47
+            | 0xFF68
+            | 0xFF69
+            | 0xFF6A
+            | 0xFF6B => self.ppu.read(address),
             0xFF04..=0xFF07 => self.timer.read(address),
             0xFF0F => self.interrupt.read_if(),
             0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF7F => {
@@ -83,7 +85,11 @@ impl GameMemory {
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize] = value,
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize] = value,
             0xFEA0..=0xFEFF => {},
-            0xFF40 | 0xFF41 | 0xFF42 | 0xFF43 | 0xFF45 | 0xFF47 => {
+            0xFF40..=0xFF47
+            | 0xFF68
+            | 0xFF69
+            | 0xFF6A
+            | 0xFF6B => {
                 self.ppu.write(address, value)
             }
             0xFF00 => self.joypad.write(value),
@@ -294,5 +300,47 @@ fn scroll_registers_affect_ppu_state() {
 
     assert_eq!(memory.read(0xFF42), 32);
     assert_eq!(memory.read(0xFF43), 64);
+}
+#[test]
+fn bg_palette_ram_read_write() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF68, 5);
+    ppu.write(0xFF69, 0xAB);
+
+    ppu.write(0xFF68, 5);
+
+    assert_eq!(ppu.read(0xFF69), 0xAB);
+}
+#[test]
+fn bg_palette_auto_increment() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF68, 0x80);
+
+    ppu.write(0xFF69, 0x11);
+    ppu.write(0xFF69, 0x22);
+    ppu.write(0xFF69, 0x33);
+
+    ppu.write(0xFF68, 0);
+
+    assert_eq!(ppu.read(0xFF69), 0x11);
+
+    ppu.write(0xFF68, 1);
+    assert_eq!(ppu.read(0xFF69), 0x22);
+
+    ppu.write(0xFF68, 2);
+    assert_eq!(ppu.read(0xFF69), 0x33);
+}
+#[test]
+fn memory_maps_cgb_palette_registers() {
+    let mut memory = test_memory();
+
+    memory.write(0xFF68, 0x80);
+    memory.write(0xFF69, 0x55);
+
+    memory.write(0xFF68, 0);
+
+    assert_eq!(memory.read(0xFF69), 0x55);
 }
 }

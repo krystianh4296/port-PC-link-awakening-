@@ -9,6 +9,11 @@ pub struct Ppu {
     scx: u8,
     scy: u8,
     bgp: u8,
+    bg_palette_ram: [u8; 64],
+    obj_palette_ram: [u8; 64],
+
+    bgpi: u8,
+    obpi: u8,
 
     cycle_counter: u32,
     mode: u8,
@@ -29,6 +34,10 @@ impl Ppu {
             scx: 0,
             scy: 0,
             bgp: 0xFC,
+            bg_palette_ram: [0; 64],
+            obj_palette_ram: [0; 64],
+            bgpi: 0,
+            obpi: 0,
 
             cycle_counter: 0,
             mode: 2,
@@ -167,6 +176,16 @@ impl Ppu {
             0xFF44 => self.ly,
             0xFF45 => self.lyc,
             0xFF47 => self.bgp,
+            0xFF68 => self.bgpi,
+            0xFF69 => {
+                let index = (self.bgpi & 0x3F) as usize;
+                self.bg_palette_ram[index]
+            }
+            0xFF6A => self.obpi,
+            0xFF6B => {
+                let index = (self.obpi & 0x3F) as usize;
+                self.obj_palette_ram[index]
+            }
             _ => 0xFF,
         }
     }
@@ -224,6 +243,31 @@ impl Ppu {
             }
 
             0xFF44 => {}
+            0xFF68 => {
+    self.bgpi = value;
+}
+
+0xFF69 => {
+    let index = (self.bgpi & 0x3F) as usize;
+    self.bg_palette_ram[index] = value;
+
+    if self.bgpi & 0x80 != 0 {
+        self.bgpi = (self.bgpi & 0x80) | ((index as u8 + 1) & 0x3F);
+    }
+}
+
+0xFF6A => {
+    self.obpi = value;
+}
+
+0xFF6B => {
+    let index = (self.obpi & 0x3F) as usize;
+    self.obj_palette_ram[index] = value;
+
+    if self.obpi & 0x80 != 0 {
+        self.obpi = (self.obpi & 0x80) | ((index as u8 + 1) & 0x3F);
+    }
+}
 
             _ => {}
         }
@@ -310,6 +354,13 @@ pub fn render_background_scanline(
     &self,
     vram: &[u8; 0x2000],
 ) -> [u8; 160] {
+    self.render_background_scanline_at(vram, self.ly)
+}
+pub fn render_background_scanline_at(
+    &self,
+    vram: &[u8; 0x2000],
+    screen_y: u8,
+) -> [u8; 160] {
     let mut pixels = [0u8; 160];
 
     let map_base = if self.lcdc & 0x08 != 0 {
@@ -324,10 +375,11 @@ pub fn render_background_scanline(
         0x9000
     };
 
+    let bg_y = screen_y.wrapping_add(self.scy);
+
     for screen_x in 0..160u16 {
         let screen_x = screen_x as u8;
-
-        let (bg_x, bg_y) = self.background_pixel_position(screen_x);
+        let bg_x = screen_x.wrapping_add(self.scx);
 
         let tile_index =
             Self::background_tile_index(
@@ -350,10 +402,35 @@ pub fn render_background_scanline(
         let row_pixels =
             Self::decode_tile_row(&tile, row);
 
-        pixels[screen_x as usize] = row_pixels[pixel_x];
+        pixels[screen_x as usize] =
+        self.apply_bgp_palette(row_pixels[pixel_x]);
     }
 
     pixels
+}
+pub fn render_background_frame(
+    &self,
+    vram: &[u8; 0x2000],
+) -> [u8; 160 * 144] {
+    let mut frame = [0u8; 160 * 144];
+
+    for y in 0..144 {
+        let line = self.render_background_scanline_at(
+            vram,
+            y as u8,
+        );
+
+        let start = y * 160;
+        let end = start + 160;
+
+        frame[start..end].copy_from_slice(&line);
+    }
+
+    frame
+}
+pub fn apply_bgp_palette(&self, color: u8) -> u8 {
+    let shift = color * 2;
+    (self.bgp >> shift) & 0b11
 }
 }
 
@@ -699,21 +776,21 @@ fn render_background_scanline_reads_tiles_and_scroll() {
 fn render_background_scanline_respects_scx() {
     let mut ppu = Ppu::new();
 
-    ppu.write(0xFF40, 0x99);
+    // LCDC: LCD ON, tile data 8000, tile map 9800
+    ppu.write(0xFF40, 0x91);
     ppu.write(0xFF43, 4);
 
     let mut vram = [0u8; 0x2000];
 
-    // Tile 0 = wszystkie piksele 0.
-    // Tile 1 = wszystkie piksele 3.
+    // Tile 0 = all 0
     vram[0] = 0x00;
     vram[1] = 0x00;
 
+    // Tile 1 = all 3
     vram[16] = 0xFF;
     vram[17] = 0xFF;
 
-    // Mapa:
-    // tile 0 | tile 1
+    // BG map 9800
     vram[0x1800] = 0;
     vram[0x1801] = 1;
 
@@ -721,5 +798,85 @@ fn render_background_scanline_respects_scx() {
 
     assert_eq!(&pixels[0..4], &[0, 0, 0, 0]);
     assert_eq!(&pixels[4..12], &[3, 3, 3, 3, 3, 3, 3, 3]);
+}
+#[test]
+fn render_background_frame_has_144_lines() {
+    let mut ppu = Ppu::new();
+
+    // LCD ON, tile data 8000, tile map 9800
+    ppu.write(0xFF40, 0x91);
+
+    let mut vram = [0u8; 0x2000];
+
+    // Tile 0 = kolor 0
+    vram[0] = 0x00;
+    vram[1] = 0x00;
+
+    // Tile 1 = kolor 3
+    vram[16] = 0xFF;
+    vram[17] = 0xFF;
+
+    // Pierwszy tile map: tile 0
+    // Drugi tile map: tile 1
+    vram[0x1800] = 0;
+    vram[0x1801] = 1;
+
+    let frame = ppu.render_background_frame(&vram);
+
+    assert_eq!(frame.len(), 160 * 144);
+
+    // Pierwsze 4 piksele z tile 0
+    assert_eq!(&frame[0..4], &[0, 0, 0, 0]);
+
+    // Piksele 8..15 pochodzą z tile 1
+    assert_eq!(
+        &frame[8..16],
+        &[3, 3, 3, 3, 3, 3, 3, 3]
+    );
+
+    // Początek drugiej linii powinien być taki sam.
+    assert_eq!(&frame[160..164], &[0, 0, 0, 0]);
+}
+#[test]
+fn bgp_default_palette() {
+    let ppu = Ppu::new();
+
+    assert_eq!(ppu.apply_bgp_palette(0), 0);
+    assert_eq!(ppu.apply_bgp_palette(1), 1);
+    assert_eq!(ppu.apply_bgp_palette(2), 2);
+    assert_eq!(ppu.apply_bgp_palette(3), 3);
+}
+#[test]
+fn bgp_reverse_palette() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF47, 0x1B);
+
+    assert_eq!(ppu.apply_bgp_palette(0), 3);
+    assert_eq!(ppu.apply_bgp_palette(1), 2);
+    assert_eq!(ppu.apply_bgp_palette(2), 1);
+    assert_eq!(ppu.apply_bgp_palette(3), 0);
+}
+#[test]
+fn render_scanline_uses_bgp_palette() {
+    let mut ppu = Ppu::new();
+
+    ppu.write(0xFF40, 0x91);
+    ppu.write(0xFF47, 0x1B);
+
+    let mut vram = [0u8; 0x2000];
+
+    // Tile 0 = 0,1,2,3,0,1,2,3
+    vram[0] = 0b01010101;
+    vram[1] = 0b00110011;
+
+    vram[0x1800] = 0;
+
+    let pixels = ppu.render_background_scanline_at(&vram, 0);
+
+    assert_eq!(
+        &pixels[0..8],
+        &[3,2,1,0,3,2,1,0]
+    );
 }
 }
