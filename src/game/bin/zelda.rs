@@ -80,23 +80,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = Input::new();
     let mut diagnostics_printed = false;
 
+    // Główna pętla emulatora:
+    // 1. pobierz wejście,
+    // 2. wykonuj CPU + sprzęt do zakończenia bieżącej klatki,
+    // 3. odbierz gotowy framebuffer,
+    // 4. narysuj klatkę,
+    // 5. utrzymuj docelowe 60 FPS.
     while renderer.is_open() && game.is_running() {
         let frame_start = Instant::now();
 
         input.update(renderer.window());
-        game.update(&input, 1.0 / TARGET_FPS as f32);
 
-        if game.frame_ready() {
-            if !diagnostics_printed {
-                print_first_frame_diagnostics(&game);
-                game.print_vram_diagnostics();
-                diagnostics_printed = true;
-            }
-
-            renderer.copy_frame(game.framebuffer());
-            game.take_frame_ready();
-            renderer.draw();
+        while !game.frame_ready() {
+            game.step();
         }
+
+        if !diagnostics_printed {
+            print_first_frame_diagnostics(&game);
+            game.print_vram_diagnostics();
+            diagnostics_printed = true;
+        }
+
+        renderer.copy_frame(game.framebuffer());
+        game.take_frame_ready();
+        renderer.draw();
 
         let elapsed = frame_start.elapsed();
         if elapsed < FRAME_TIME {
