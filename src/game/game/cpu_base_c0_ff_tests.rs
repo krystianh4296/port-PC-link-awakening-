@@ -17,6 +17,34 @@ fn cpu_at(opcode: u8) -> (Cpu, GameMemory) {
     (cpu, memory)
 }
 
+fn set_not_taken_flags(cpu: &mut Cpu, opcode: u8) {
+    cpu.f = match opcode {
+        // NZ condition: make Z=1.
+        0xC0 | 0xC2 | 0xC4 => 0x80,
+        // Z condition: make Z=0.
+        0xC8 | 0xCA | 0xCC => 0x00,
+        // NC condition: make C=1.
+        0xD0 | 0xD2 | 0xD4 => 0x10,
+        // C condition: make C=0.
+        0xD8 | 0xDA | 0xDC => 0x00,
+        _ => 0x00,
+    };
+}
+
+fn set_taken_flags(cpu: &mut Cpu, opcode: u8) {
+    cpu.f = match opcode {
+        // NZ condition: make Z=0.
+        0xC0 | 0xC2 | 0xC4 => 0x00,
+        // Z condition: make Z=1.
+        0xC8 | 0xCA | 0xCC => 0x80,
+        // NC condition: make C=0.
+        0xD0 | 0xD2 | 0xD4 => 0x00,
+        // C condition: make C=1.
+        0xD8 | 0xDA | 0xDC => 0x10,
+        _ => 0x00,
+    };
+}
+
 #[test]
 fn base_c0_ff_control_opcodes_have_correct_cycles_and_pc() {
     let cases: &[(u8, u32, u16)] = &[
@@ -48,21 +76,15 @@ fn base_c0_ff_control_opcodes_have_correct_cycles_and_pc() {
         cpu.sp = 0xC200;
         cpu.set_hl(0x1234);
 
-        if matches!(opcode, 0xC0 | 0xC8 | 0xD0 | 0xD8 | 0xC2 | 0xCA | 0xD2 | 0xDA | 0xC4 | 0xCC | 0xD4 | 0xDC) {
-            cpu.f = 0x00;
+        if matches!(opcode, 0xC0 | 0xC2 | 0xC4 | 0xC8 | 0xCA | 0xCC | 0xD0 | 0xD2 | 0xD4 | 0xD8 | 0xDA | 0xDC) {
+            set_not_taken_flags(&mut cpu, opcode);
         }
         if matches!(opcode, 0xC9 | 0xD9 | 0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF) {
             memory.write(0xC200, 0x34);
             memory.write(0xC201, 0x12);
         }
 
-        // Conditional branches are tested on the not-taken path here.
-        // Unconditional targets and stack instructions use the expected setup above.
-        let cycles = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cpu.step(&mut memory)));
-        if cycles.is_err() {
-            continue;
-        }
-        let cycles = cycles.unwrap();
+        let cycles = cpu.step(&mut memory);
         assert_eq!(cycles, cycles_expected, "opcode {:02X}", opcode);
         if !matches!(opcode, 0xC3 | 0xC9 | 0xCD | 0xD9 | 0xE9 | 0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF) {
             assert_eq!(cpu.pc, pc_expected, "opcode {:02X}", opcode);
@@ -73,16 +95,16 @@ fn base_c0_ff_control_opcodes_have_correct_cycles_and_pc() {
 #[test]
 fn base_c0_ff_call_ret_and_rst_preserve_return_address() {
     let (mut cpu, mut memory) = cpu_at(0xCD);
-    memory.write(0xC001, 0x34);
-    memory.write(0xC002, 0x12);
+    memory.write(0xC001, 0x00);
+    memory.write(0xC002, 0xC3);
+    memory.write(0xC300, 0xC9);
     cpu.sp = 0xC200;
     assert_eq!(cpu.step(&mut memory), 24);
-    assert_eq!(cpu.pc, 0x1234);
+    assert_eq!(cpu.pc, 0xC300);
     assert_eq!(cpu.sp, 0xC1FE);
     assert_eq!(memory.read(0xC1FE), 0x03);
     assert_eq!(memory.read(0xC1FF), 0xC0);
 
-    memory.write(0x1234, 0xC9);
     assert_eq!(cpu.step(&mut memory), 16);
     assert_eq!(cpu.pc, 0xC003);
     assert_eq!(cpu.sp, 0xC200);
@@ -99,35 +121,34 @@ fn base_c0_ff_call_ret_and_rst_preserve_return_address() {
 fn base_c0_ff_conditional_jumps_calls_and_returns_cover_both_paths() {
     for &(opcode, taken, expected_cycles, expected_pc) in &[
         (0xC2, false, 12, 0xC003), (0xC2, true, 16, 0x1234),
-        (0xCA, true, 16, 0x1234), (0xD2, false, 12, 0xC003),
-        (0xDA, true, 16, 0x1234), (0xC4, false, 12, 0xC003),
-        (0xCC, true, 24, 0x1234), (0xD4, false, 12, 0xC003),
-        (0xDC, true, 24, 0x1234), (0xC0, false, 8, 0xC001),
-        (0xC8, true, 20, 0x5678), (0xD0, false, 8, 0xC001),
-        (0xD8, true, 20, 0x5678),
+        (0xCA, false, 12, 0xC003), (0xCA, true, 16, 0x1234),
+        (0xD2, false, 12, 0xC003), (0xD2, true, 16, 0x1234),
+        (0xDA, false, 12, 0xC003), (0xDA, true, 16, 0x1234),
+        (0xC4, false, 12, 0xC003), (0xC4, true, 24, 0x1234),
+        (0xCC, false, 12, 0xC003), (0xCC, true, 24, 0x1234),
+        (0xD4, false, 12, 0xC003), (0xD4, true, 24, 0x1234),
+        (0xDC, false, 12, 0xC003), (0xDC, true, 24, 0x1234),
+        (0xC0, false, 8, 0xC001), (0xC0, true, 20, 0x5678),
+        (0xC8, false, 8, 0xC001), (0xC8, true, 20, 0x5678),
+        (0xD0, false, 8, 0xC001), (0xD0, true, 20, 0x5678),
+        (0xD8, false, 8, 0xC001), (0xD8, true, 20, 0x5678),
     ] {
         let (mut cpu, mut memory) = cpu_at(opcode);
         memory.write(0xC001, 0x34);
         memory.write(0xC002, 0x12);
         cpu.sp = 0xC200;
+
         if taken {
-            cpu.f = match opcode {
-                0xCA | 0xC8 => 0x80,
-                0xDA | 0xDC | 0xD8 => 0x10,
-                _ => 0x00,
-            };
+            set_taken_flags(&mut cpu, opcode);
             memory.write(0xC1FE, 0x78);
             memory.write(0xC1FF, 0x56);
         } else {
-            cpu.f = match opcode {
-                0xC2 | 0xC4 | 0xD2 | 0xD4 | 0xC0 | 0xD0 => 0x00,
-                0xCA | 0xCC | 0xDA | 0xDC | 0xC8 | 0xD8 => 0x00,
-                _ => 0,
-            };
+            set_not_taken_flags(&mut cpu, opcode);
         }
+
         let cycles = cpu.step(&mut memory);
-        assert_eq!(cycles, expected_cycles, "opcode {:02X}", opcode);
-        assert_eq!(cpu.pc, expected_pc, "opcode {:02X}", opcode);
+        assert_eq!(cycles, expected_cycles, "opcode {:02X} taken={}", opcode, taken);
+        assert_eq!(cpu.pc, expected_pc, "opcode {:02X} taken={}", opcode, taken);
     }
 }
 
