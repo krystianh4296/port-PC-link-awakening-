@@ -141,7 +141,6 @@ impl Ppu {
     pub fn decode_tile_row(tile: &[u8; 16], row: usize) -> [u8; 8] {
         let lo = tile[row * 2];
         let hi = tile[row * 2 + 1];
-
         std::array::from_fn(|x| {
             let bit = 7 - x;
             let low_bit = (lo >> bit) & 1;
@@ -170,23 +169,22 @@ impl Ppu {
         let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
 
-        // SCX/SCY are 8-bit wrapping registers. Calculate the BG coordinate
-        // in the full 256x256 plane before selecting its tile and pixel.
+        // Calculate the wrapped 256x256 BG coordinate first. This makes SCX
+        // and SCY affect both tile selection and the pixel/row inside the tile.
         for x in 0..160usize {
-            let bx = (x + self.scx as usize) & 0xFF;
-            let by = (y as usize + self.scy as usize) & 0xFF;
-            let tile_x = bx >> 3;
-            let tile_y = by >> 3;
-            let map_offset = (map - 0x8000) as usize;
-            let map_index = map_offset + tile_y * 32 + tile_x;
+            let bg_x = (x + self.scx as usize) & 0xFF;
+            let bg_y = (y as usize + self.scy as usize) & 0xFF;
+            let tile_x = bg_x >> 3;
+            let tile_y = bg_y >> 3;
+            let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
 
             let tile_index = vram0[map_index];
             let attr = vram1[map_index];
             let (palette, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
             let tile_vram = if bank { vram1 } else { vram0 };
             let tile = Self::background_tile_data(tile_vram, tile_index, base);
-            let row = if flip_y { 7 - (by & 7) } else { by & 7 };
-            let px = if flip_x { 7 - (bx & 7) } else { bx & 7 };
+            let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
+            let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
             let ci = Self::decode_tile_row(&tile, row)[px];
             out[x] = self.background_palette_color(palette, ci);
         }
