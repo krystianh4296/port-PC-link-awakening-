@@ -106,10 +106,11 @@ impl Ppu {
                 self.update_lyc_flag(); self.update_stat_interrupt();
             }
             0xFF41 => { self.stat = (self.stat & 7) | (value & 0x78) | 0x80; self.update_stat_interrupt(); }
-            0xFF42 => self.scy = value, 0xFF43 => self.scx = value,
+            0xFF42 => self.scy = value,
+            0xFF43 => self.scx = value,
             0xFF45 => { self.lyc = value; self.update_lyc_flag(); self.update_stat_interrupt(); }
             0xFF47 => self.bgp = value, 0xFF4A => self.wy = value, 0xFF4B => self.wx = value,
-            0xFF68 => self.bgpi = value,
+            0xFF68 => self.bgpi,
             0xFF69 => { let i = (self.bgpi & 0x3F) as usize; self.bg_palette_ram[i] = value; if self.bgpi & 0x80 != 0 { self.bgpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
             0xFF6A => self.obpi = value,
             0xFF6B => { let i = (self.obpi & 0x3F) as usize; self.obj_palette_ram[i] = value; if self.obpi & 0x80 != 0 { self.obpi = 0x80 | ((i as u8 + 1) & 0x3F); } }
@@ -126,8 +127,12 @@ impl Ppu {
     #[cfg(test)] pub fn mode(&self) -> u8 { self.mode }
 
     pub fn background_tile_index(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
-        let offset = (map_base - 0x8000) as usize + (bg_y as usize / 8) * 32 + (bg_x as usize / 8); vram[offset]
+        let map_offset = (map_base - 0x8000) as usize;
+        let tile_x = (bg_x as usize) / 8;
+        let tile_y = (bg_y as usize) / 8;
+        vram[map_offset + tile_y * 32 + tile_x]
     }
+
     pub fn background_tile_data(vram: &[u8; 0x2000], tile_index: u8, base: u16) -> [u8; 16] {
         let address = if base == 0x8000 { 0x8000u16 + tile_index as u16 * 16 } else { (0x9000i32 + tile_index as i8 as i32 * 16) as u16 };
         let offset = (address - 0x8000) as usize; let mut tile = [0; 16]; tile.copy_from_slice(&vram[offset..offset + 16]); tile
@@ -151,11 +156,25 @@ impl Ppu {
     }
 
     pub fn render_background_scanline_cgb(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], y: u8) -> [u32; 160] {
-        let mut out = [0u32; 160]; let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 }; let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 }; let by = y.wrapping_add(self.scy);
+        let mut out = [0u32; 160];
+        let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
+        let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
+
+        // SCX/SCY address the 256x256-pixel BG space. u8 wrapping is
+        // intentional: coordinates 0xFF + 1 become 0x00.
+        let scx = self.scx;
+        let scy = self.scy;
+        let by = y.wrapping_add(scy);
+
         for x in 0..160usize {
-            let bx = (x as u8).wrapping_add(self.scx); let tile_index = Self::background_tile_index(vram0, bx, by, map); let attr = Self::background_tile_attributes(vram1, bx, by, map);
-            let (palette, bank, fx, fy, _) = Self::background_tile_attribute_info(attr); let tile = Self::background_tile_data(if bank { vram1 } else { vram0 }, tile_index, base);
-            let row = if fy { 7 - (by & 7) as usize } else { (by & 7) as usize }; let px = if fx { 7 - (bx & 7) as usize } else { (bx & 7) as usize }; let ci = Self::decode_tile_row(&tile, row)[px];
+            let bx = (x as u8).wrapping_add(scx);
+            let tile_index = Self::background_tile_index(vram0, bx, by, map);
+            let attr = Self::background_tile_attributes(vram1, bx, by, map);
+            let (palette, bank, fx, fy, _) = Self::background_tile_attribute_info(attr);
+            let tile = Self::background_tile_data(if bank { vram1 } else { vram0 }, tile_index, base);
+            let row = if fy { 7 - (by & 7) as usize } else { (by & 7) as usize };
+            let px = if fx { 7 - (bx & 7) as usize } else { (bx & 7) as usize };
+            let ci = Self::decode_tile_row(&tile, row)[px];
             out[x] = self.background_palette_color(palette, ci);
         }
         out
