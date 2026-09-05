@@ -273,6 +273,20 @@ impl Ppu {
 
         pixels
     }
+    pub fn background_tile_index(
+        vram: &[u8; 0x2000],
+        bg_x: u8,
+        bg_y: u8,
+        map_base: u16,
+    ) -> u8 {
+        let tile_x = (bg_x / 8) as usize;
+        let tile_y = (bg_y / 8) as usize;
+
+        let map_offset = (map_base - 0x8000) as usize;
+        let index = map_offset + tile_y * 32 + tile_x;
+
+        vram[index]
+    }
 }
 
 
@@ -487,6 +501,32 @@ fn decode_last_tile_row() {
     assert_eq!(
         Ppu::decode_tile_row(&tile, 7),
         [1,1,1,1,1,1,1,1]
+    );
+}
+#[test]
+fn background_tile_index_reads_correct_tile() {
+    let mut vram = [0u8; 0x2000];
+
+    // Mapa 0x9800.
+    // tile (2, 3) => 0x1800 + 3 * 32 + 2
+    let index = 0x1800 + 3 * 32 + 2;
+    vram[index] = 0x57;
+
+    assert_eq!(
+        Ppu::background_tile_index(&vram, 16, 24, 0x9800),
+        0x57
+    );
+}
+#[test]
+fn background_tile_index_supports_second_tile_map() {
+    let mut vram = [0u8; 0x2000];
+
+    let index = 0x1C00 + 5 * 32 + 7;
+    vram[index] = 0xA3;
+
+    assert_eq!(
+        Ppu::background_tile_index(&vram, 56, 40, 0x9C00),
+        0xA3
     );
 }
 }
