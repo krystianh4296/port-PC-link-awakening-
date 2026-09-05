@@ -10,15 +10,17 @@ pub struct Game {
 
 impl Game {
     pub fn new(rom: Rom) -> Self {
+        let mut cpu = Cpu::new();
+        cpu.reset();
+
         Self {
             running: true,
-            cpu: Cpu::new(),
+            cpu,
             memory: GameMemory::new(Cartridge::new(rom)),
         }
     }
 
     pub fn update(&mut self, _input: &Input, _delta_time: f32) {
-        // Wykonujemy CPU do momentu zakończenia bieżącej klatki PPU.
         while !self.memory.frame_ready() {
             self.step();
         }
