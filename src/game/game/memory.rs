@@ -61,7 +61,9 @@ impl GameMemory {
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00 => self.joypad.read(),
             0xFF01..=0xFF02 => self.serial.read(address),
-            0xFF40 | 0xFF41 | 0xFF44 | 0xFF45 => self.ppu.read(address),
+            0xFF40 | 0xFF41 | 0xFF42 | 0xFF43 | 0xFF44 | 0xFF45 | 0xFF47 => {
+                self.ppu.read(address)
+            }
             0xFF04..=0xFF07 => self.timer.read(address),
             0xFF0F => self.interrupt.read_if(),
             0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF10..=0xFF7F => {
@@ -81,7 +83,9 @@ impl GameMemory {
             0xE000..=0xFDFF => self.wram[(address - 0xE000) as usize] = value,
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize] = value,
             0xFEA0..=0xFEFF => {},
-            0xFF40 | 0xFF41 | 0xFF45 => self.ppu.write(address, value),
+            0xFF40 | 0xFF41 | 0xFF42 | 0xFF43 | 0xFF45 | 0xFF47 => {
+                self.ppu.write(address, value)
+            }
             0xFF00 => self.joypad.write(value),
             0xFF01..=0xFF02 => {
                 self.serial.write(address, value);
