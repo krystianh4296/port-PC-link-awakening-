@@ -117,7 +117,7 @@ fn tile_decoder_extracts_four_color_indices() {
 #[test]
 fn tile_data_supports_unsigned_and_signed_addressing() {
     let mut vram = [0u8; 0x2000];
-    for i in 0..16 { vram[i] = i as u8; }
+    for i in 0..32 { vram[i] = i as u8; }
 
     assert_eq!(Ppu::background_tile_data(&vram, 0, 0x8000)[0], 0);
     assert_eq!(Ppu::background_tile_data(&vram, 1, 0x8000)[0], 16);
