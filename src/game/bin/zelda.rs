@@ -89,6 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if game.frame_ready() {
             if !diagnostics_printed {
                 print_first_frame_diagnostics(&game);
+                game.print_vram_diagnostics();
                 diagnostics_printed = true;
             }
 
