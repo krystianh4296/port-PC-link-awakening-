@@ -45,6 +45,10 @@ impl Game {
     pub fn read_word(&self, address: u16) -> u16 { self.memory.read_word(address) }
     pub fn write_word(&mut self, address: u16, value: u16) { self.memory.write_word(address, value); }
 
+    pub fn print_vram_diagnostics(&self) {
+        self.memory.print_vram_diagnostics();
+    }
+
     pub fn select_rom_bank(&mut self, bank: u16) {
         self.memory.write(0x2000, bank as u8);
         self.memory.write(0x3000, (bank >> 8) as u8);
