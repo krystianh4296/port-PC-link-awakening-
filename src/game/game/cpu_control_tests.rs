@@ -92,7 +92,7 @@ fn interrupt_priority_selects_lowest_pending_bit() {
 
     assert_eq!(cpu.step(&mut memory), 20);
     assert_eq!(cpu.pc, 0x0040);
-    assert_eq!(memory.read(0xFF0F), 0x1E);
+    assert_eq!(memory.read(0xFF0F) & 0x1F, 0x1E);
     assert!(!cpu.ime);
 }
 
@@ -106,7 +106,7 @@ fn interrupt_service_clears_only_selected_if_bit() {
 
     assert_eq!(cpu.step(&mut memory), 20);
     assert_eq!(cpu.pc, 0x0048); // STAT has priority over Timer
-    assert_eq!(memory.read(0xFF0F), 0x04);
+    assert_eq!(memory.read(0xFF0F) & 0x1F, 0x04);
 }
 
 #[test]

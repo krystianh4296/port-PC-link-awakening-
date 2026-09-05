@@ -67,6 +67,7 @@ fn lcd_disable_and_enable_reset_scanline_state() {
     ppu.write(0xFF40, 0x00);
     assert_eq!(ppu.read(0xFF44), 0);
     assert_eq!(ppu.mode(), 0);
+    assert_eq!(ppu.read(0xFF41) & 0x03, 0);
 
     ppu.step(1000, &oam, &vram0, &vram1);
     assert_eq!(ppu.read(0xFF44), 0);
@@ -74,6 +75,36 @@ fn lcd_disable_and_enable_reset_scanline_state() {
     ppu.write(0xFF40, 0x91);
     assert_eq!(ppu.read(0xFF44), 0);
     assert_eq!(ppu.mode(), 2);
+    assert_eq!(ppu.read(0xFF41) & 0x03, 2);
+}
+
+#[test]
+fn mode_3_length_includes_scroll_and_sprite_fetch_penalties() {
+    let mut ppu = Ppu::new();
+    let (vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+    ppu.write(0xFF43, 3);
+    ppu.step(80, &oam, &vram0, &vram1);
+    ppu.step(174, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 3);
+    ppu.step(1, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 0);
+
+    let mut with_sprite = Ppu::new();
+    let mut sprite_oam = [0; 0xA0];
+    sprite_oam[0] = 16;
+    sprite_oam[1] = 8;
+    with_sprite.step(80, &sprite_oam, &vram0, &vram1);
+    with_sprite.step(182, &sprite_oam, &vram0, &vram1);
+    assert_eq!(with_sprite.mode(), 3);
+    with_sprite.step(1, &sprite_oam, &vram0, &vram1);
+    assert_eq!(with_sprite.mode(), 0);
+
+    // Mode 0 contracts by the same amount, preserving the fixed 456-dot
+    // scanline timing required by software polling LY/STAT.
+    with_sprite.step(456 - 80 - 183, &sprite_oam, &vram0, &vram1);
+    assert_eq!(with_sprite.ly(), 1);
+    assert_eq!(with_sprite.mode(), 2);
 }
 
 #[test]
@@ -162,6 +193,31 @@ fn background_scanline_reads_tile_map_and_tile_data() {
 
     let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
     assert!(line.iter().all(|&pixel| pixel != 0xFF000000));
+}
+
+#[test]
+fn window_uses_its_own_tile_map_at_wx_minus_seven() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    // The background map uses tile 0/color 1, while the window map uses
+    // tile 1/color 2. WX=7 places the window's left edge at screen x=0.
+    for row in 0..8 {
+        vram0[row * 2] = 0xFF;
+        vram0[row * 2 + 1] = 0x00;
+        vram0[16 + row * 2] = 0x00;
+        vram0[16 + row * 2 + 1] = 0xFF;
+    }
+    vram0[0x1800] = 0;
+    vram0[0x1C00] = 1;
+
+    ppu.write(0xFF40, 0xF1); // LCD, BG, window enabled; window map 9C00.
+    ppu.write(0xFF4A, 0);
+    ppu.write(0xFF4B, 7);
+    ppu.step(258, &oam, &vram0, &vram1);
+
+    assert_eq!(ppu.framebuffer()[0], Ppu::cgb_rgb555_to_argb(0x294A));
 }
 
 #[test]
@@ -302,7 +358,7 @@ fn sprite_rendering_reads_oam_without_changing_bg_scroll() {
     // Enable LCD, BG and OBJ. This advances through mode 2 and mode 3,
     // causing scanline 0 to be rendered exactly once.
     ppu.write(0xFF40, 0x93);
-    ppu.step(252, &oam, &vram0, &vram1);
+    ppu.step(263, &oam, &vram0, &vram1);
 
     let expected_sprite_color = Ppu::cgb_rgb555_to_argb(0x56B5);
     let framebuffer = ppu.framebuffer();
@@ -313,4 +369,58 @@ fn sprite_rendering_reads_oam_without_changing_bg_scroll() {
     // SCX/SCY were not modified by sprite rendering.
     assert_eq!(ppu.read(0xFF43), 0);
     assert_eq!(ppu.read(0xFF42), 0);
+}
+
+#[test]
+fn sprite_scanline_uses_only_the_first_ten_oam_entries() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+    let mut oam = [0u8; 0xA0];
+
+    // The first ten OAM entries are on the scanline but fully off-screen.
+    // They still consume the hardware's ten-sprite selection budget.
+    for index in 0..10 {
+        let base = index * 4;
+        oam[base] = 16;
+        oam[base + 1] = 0;
+    }
+
+    // Entry 10 would be visible if the renderer considered more than ten.
+    for row in 0..8 {
+        vram0[16 + row * 2] = 0xFF;
+        vram0[16 + row * 2 + 1] = 0x00;
+    }
+    oam[40] = 16;
+    oam[41] = 8;
+    oam[42] = 1;
+
+    ppu.write(0xFF40, 0x93);
+    ppu.step(362, &oam, &vram0, &vram1);
+
+    assert_eq!(ppu.framebuffer()[0], Ppu::cgb_rgb555_to_argb(0x7FFF));
+}
+
+#[test]
+fn cgb_background_priority_tile_is_drawn_over_a_sprite() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, mut vram1) = blank_vram();
+    let mut oam = [0u8; 0xA0];
+
+    // BG tile 0 is color 1 and has the CGB priority attribute. Sprite tile 1
+    // is color 2 at the same screen position.
+    for row in 0..8 {
+        vram0[row * 2] = 0xFF;
+        vram0[row * 2 + 1] = 0x00;
+        vram0[16 + row * 2] = 0x00;
+        vram0[16 + row * 2 + 1] = 0xFF;
+    }
+    vram1[0x1800] = 0x80;
+    oam[0] = 16;
+    oam[1] = 8;
+    oam[2] = 1;
+
+    ppu.write(0xFF40, 0x93);
+    ppu.step(263, &oam, &vram0, &vram1);
+
+    assert_eq!(ppu.framebuffer()[0], Ppu::cgb_rgb555_to_argb(0x56B5));
 }

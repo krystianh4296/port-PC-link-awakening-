@@ -18,9 +18,11 @@ pub struct Ppu {
     bgp: u8,
     cycle_counter: u32,
     mode: u8,
+    mode3_cycles: u32,
     vblank_interrupt: bool,
     stat_interrupt: bool,
     stat_irq_line: bool,
+    hblank_started: bool,
 }
 
 impl Ppu {
@@ -39,8 +41,9 @@ impl Ppu {
             scx: 0, scy: 0, wx: 0, wy: 0, window_line: 0,
             framebuffer: [0xFF000000; 160 * 144], frame_ready: false,
             bg_palette_ram, obj_palette_ram, bgpi: 0, obpi: 0,
-            bgp: 0xFC, cycle_counter: 0, mode: 2,
+            bgp: 0xFC, cycle_counter: 0, mode: 2, mode3_cycles: 172,
             vblank_interrupt: false, stat_interrupt: false, stat_irq_line: false,
+            hblank_started: false,
         }
     }
 
@@ -52,18 +55,34 @@ impl Ppu {
     fn step_cycle(&mut self, oam: &[u8; 0xA0], vram0: &[u8; 0x2000], vram1: &[u8; 0x2000]) {
         self.cycle_counter += 1;
         match self.mode {
-            2 if self.cycle_counter >= 80 => { self.cycle_counter = 0; self.set_mode(3); }
-            3 if self.cycle_counter >= 172 => {
+            2 if self.cycle_counter >= 80 => {
+                self.cycle_counter = 0;
+                // Sprite selection and the low SCX bits are sampled at the
+                // start of pixel transfer. Keep this duration fixed until
+                // HBlank so one scanline always remains 456 dots long.
+                self.mode3_cycles = self.mode3_length(oam);
+                self.set_mode(3);
+            }
+            3 if self.cycle_counter >= self.mode3_cycles => {
                 self.cycle_counter = 0;
                 if self.ly < 144 {
-                    let line = self.render_background_scanline_cgb(vram0, vram1, self.ly);
+                    let line = self.render_background_scanline_with_window(
+                        vram0,
+                        vram1,
+                        self.ly,
+                        self.window_line,
+                    );
                     let start = self.ly as usize * 160;
                     self.framebuffer[start..start + 160].copy_from_slice(&line);
                     self.render_sprites_scanline(oam, vram0, vram1, self.ly);
+                    if self.window_is_visible_on_line(self.ly) {
+                        self.window_line = self.window_line.wrapping_add(1);
+                    }
                 }
                 self.set_mode(0);
+                self.hblank_started = true;
             }
-            0 if self.cycle_counter >= 204 => {
+            0 if self.cycle_counter >= 376 - self.mode3_cycles => {
                 self.cycle_counter = 0;
                 self.ly = self.ly.wrapping_add(1);
                 if self.ly == 144 { self.set_mode(1); self.vblank_interrupt = true; self.frame_ready = true; }
@@ -82,6 +101,49 @@ impl Ppu {
     }
 
     fn set_mode(&mut self, mode: u8) { self.mode = mode; self.stat = (self.stat & !3) | mode; self.update_stat_interrupt(); }
+
+    fn mode3_length(&self, oam: &[u8; 0xA0]) -> u32 {
+        let mut length = 172 + u32::from(self.scx & 7);
+        if self.window_is_visible_on_line(self.ly) {
+            length += 6;
+        }
+
+        let sprite_height = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
+        let mut sprites: Vec<(u8, usize)> = (0..40)
+            .filter(|&index| {
+                let y = oam[index * 4] as i16 - 16;
+                y <= self.ly as i16 && y + sprite_height > self.ly as i16
+            })
+            .take(10)
+            .map(|index| (oam[index * 4 + 1], index))
+            .collect();
+        sprites.sort_unstable();
+
+        let mut seen_tiles = [false; 32];
+        for (oam_x, _) in sprites {
+            if oam_x == 0 {
+                length += 11;
+                continue;
+            }
+            let screen_x = i16::from(oam_x) - 8;
+            let fetch_x = screen_x.max(0);
+            let tile_x = if self.window_is_visible_on_line(self.ly)
+                && screen_x >= i16::from(self.wx) - 7
+            {
+                ((fetch_x - (i16::from(self.wx) - 7)) as usize / 8) & 31
+            } else {
+                ((fetch_x + i16::from(self.scx)) as usize / 8) & 31
+            };
+            if !seen_tiles[tile_x] {
+                seen_tiles[tile_x] = true;
+                let pixel_in_tile = (fetch_x as usize + usize::from(self.scx)) & 7;
+                length += (5usize.saturating_sub(pixel_in_tile) + 6) as u32;
+            } else {
+                length += 6;
+            }
+        }
+        length.min(289)
+    }
     fn update_lyc_flag(&mut self) { if self.ly == self.lyc { self.stat |= 4; } else { self.stat &= !4; } }
     fn update_stat_interrupt(&mut self) {
         let coincidence = self.ly == self.lyc;
@@ -105,8 +167,19 @@ impl Ppu {
         match address {
             0xFF40 => {
                 let was = self.lcdc & 0x80 != 0; let now = value & 0x80 != 0; self.lcdc = value;
-                if was && !now { self.ly = 0; self.cycle_counter = 0; self.mode = 0; self.frame_ready = false; }
-                else if !was && now { self.ly = 0; self.cycle_counter = 0; self.mode = 2; self.frame_ready = false; }
+                if was && !now {
+                    self.ly = 0;
+                    self.cycle_counter = 0;
+                    self.mode3_cycles = 172;
+                    self.frame_ready = false;
+                    self.set_mode(0);
+                } else if !was && now {
+                    self.ly = 0;
+                    self.cycle_counter = 0;
+                    self.mode3_cycles = 172;
+                    self.frame_ready = false;
+                    self.set_mode(2);
+                }
                 self.update_lyc_flag(); self.update_stat_interrupt();
             }
             0xFF41 => { self.stat = (self.stat & 7) | (value & 0x78) | 0x80; self.update_stat_interrupt(); }
@@ -124,6 +197,7 @@ impl Ppu {
 
     pub fn take_vblank_interrupt(&mut self) -> bool { let x = self.vblank_interrupt; self.vblank_interrupt = false; x }
     pub fn take_stat_interrupt(&mut self) -> bool { let x = self.stat_interrupt; self.stat_interrupt = false; x }
+    pub fn take_hblank_started(&mut self) -> bool { let x = self.hblank_started; self.hblank_started = false; x }
     pub fn framebuffer(&self) -> &[u32; 160 * 144] { &self.framebuffer }
     pub fn frame_ready(&self) -> bool { self.frame_ready }
     pub fn take_frame_ready(&mut self) -> bool { let x = self.frame_ready; self.frame_ready = false; x }
@@ -163,12 +237,38 @@ impl Ppu {
     pub fn apply_bgp_palette(&self, color_index: u8) -> u8 { let shift = (color_index & 0x03) * 2; (self.bgp >> shift) & 0x03 }
 
     pub fn render_background_scanline_cgb(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], y: u8) -> [u32; 160] {
+        self.render_background_scanline_with_window(vram0, vram1, y, y.wrapping_sub(self.wy))
+    }
+
+    fn window_is_visible_on_line(&self, y: u8) -> bool {
+        self.lcdc & 0x20 != 0 && y >= self.wy && self.wx <= 166
+    }
+
+    fn render_background_scanline_with_window(
+        &self,
+        vram0: &[u8; 0x2000],
+        vram1: &[u8; 0x2000],
+        y: u8,
+        window_line: u8,
+    ) -> [u32; 160] {
         let mut out = [0u32; 160];
-        let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
         for x in 0..160usize {
-            let bg_x = (x + self.scx as usize) & 0xFF;
-            let bg_y = (y as usize + self.scy as usize) & 0xFF;
+            let use_window = self.window_is_visible_on_line(y)
+                && x as i16 >= self.wx as i16 - 7;
+            let (map, bg_x, bg_y) = if use_window {
+                (
+                    if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 },
+                    (x as i16 - (self.wx as i16 - 7)) as usize,
+                    window_line as usize,
+                )
+            } else {
+                (
+                    if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 },
+                    (x + self.scx as usize) & 0xFF,
+                    (y as usize + self.scy as usize) & 0xFF,
+                )
+            };
             let tile_x = bg_x >> 3; let tile_y = bg_y >> 3;
             let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
             let tile_index = vram0[map_index];
@@ -184,10 +284,31 @@ impl Ppu {
         out
     }
 
-    fn background_color_index_at(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], x: usize, y: u8) -> u8 {
-        let bg_x = (x + self.scx as usize) & 0xFF;
-        let bg_y = (y as usize + self.scy as usize) & 0xFF;
-        let map = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
+    fn background_pixel_info_at(
+        &self,
+        vram0: &[u8; 0x2000],
+        vram1: &[u8; 0x2000],
+        x: usize,
+        y: u8,
+    ) -> (u8, bool) {
+        if self.lcdc & 0x01 == 0 {
+            return (0, false);
+        }
+        let use_window = self.window_is_visible_on_line(y)
+            && x as i16 >= self.wx as i16 - 7;
+        let (map, bg_x, bg_y) = if use_window {
+            (
+                if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 },
+                (x as i16 - (self.wx as i16 - 7)) as usize,
+                self.window_line as usize,
+            )
+        } else {
+            (
+                if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 },
+                (x + self.scx as usize) & 0xFF,
+                (y as usize + self.scy as usize) & 0xFF,
+            )
+        };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
         let tile_x = bg_x >> 3; let tile_y = bg_y >> 3;
         let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
@@ -198,7 +319,7 @@ impl Ppu {
         let tile = Self::background_tile_data(tile_vram, tile_index, base);
         let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
         let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
-        Self::decode_tile_row(&tile, row)[px]
+        (Self::decode_tile_row(&tile, row)[px], attr & 0x80 != 0)
     }
 
     fn obj_palette_color(&self, palette: u8, index: u8) -> u32 {
@@ -212,7 +333,18 @@ impl Ppu {
         const WIDTH: usize = 160;
         let sprite_height = if self.lcdc & 0x04 != 0 { 16usize } else { 8usize };
 
-        for index in (0..40).rev() {
+        // Mode 2 selects at most ten sprites per scanline in OAM order.
+        // Draw the selected list in reverse so a lower OAM index retains
+        // priority when sprites overlap.
+        let visible_sprites: Vec<usize> = (0..40)
+            .filter(|&index| {
+                let sprite_y = oam[index * 4] as i32 - 16;
+                sprite_y <= line as i32 && sprite_y + sprite_height as i32 > line as i32
+            })
+            .take(10)
+            .collect();
+
+        for index in visible_sprites.into_iter().rev() {
             let base = index * 4;
             let y = oam[base] as i32;
             let x = oam[base + 1] as i32;
@@ -248,7 +380,8 @@ impl Ppu {
                 let color_id = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
                 if color_id == 0 { continue; }
                 let sx = screen_x as usize;
-                if behind_bg && self.background_color_index_at(vram0, vram1, sx, line) != 0 { continue; }
+                let (bg_color_id, bg_priority) = self.background_pixel_info_at(vram0, vram1, sx, line);
+                if bg_color_id != 0 && (behind_bg || bg_priority) { continue; }
                 self.framebuffer[line as usize * WIDTH + sx] = self.obj_palette_color(palette, color_id);
             }
         }

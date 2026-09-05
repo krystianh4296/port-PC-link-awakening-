@@ -21,7 +21,7 @@ impl InterruptController {
     }
 
     pub fn read_if(&self) -> u8 {
-        self.if_reg
+        self.if_reg | 0xE0
     }
 
     pub fn write_if(&mut self, value: u8) {
@@ -82,6 +82,14 @@ mod tests {
 
         ic.write_if(0xFF);
 
-        assert_eq!(ic.read_if(), 0x1F);
+        assert_eq!(ic.read_if() & 0x1F, 0x1F);
+    }
+
+    #[test]
+    fn read_if_sets_unused_bits() {
+        let mut ic = InterruptController::new();
+        ic.write_if(0x05);
+
+        assert_eq!(ic.read_if(), 0xE5);
     }
 }

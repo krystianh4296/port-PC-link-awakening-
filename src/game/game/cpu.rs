@@ -2375,7 +2375,7 @@ fn interrupt_priority_all_vectors() {
     assert!(!cpu.ime);
 
     // Tylko VBlank został skasowany.
-    assert_eq!(memory.read(0xFF0F), 0x1E);
+    assert_eq!(memory.read(0xFF0F) & 0x1F, 0x1E);
 
     // Powrót zapisany na stosie.
     assert_eq!(cpu.sp, 0xC0FE);

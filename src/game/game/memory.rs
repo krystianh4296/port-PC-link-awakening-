@@ -32,6 +32,11 @@ pub struct GameMemory {
     key1_prepare: bool,
     double_speed: bool,
     hdma: [u8; 5],
+    hdma_source: u16,
+    hdma_destination: u16,
+    hdma_blocks_remaining: u8,
+    hdma_hblank_active: bool,
+    hdma_cpu_stall_cycles: u32,
     graphics_write_trace_count: u16,
     vram_first_writes_logged: u8,
     last_vram_write: Option<(u16, u8, u8)>,
@@ -64,6 +69,11 @@ impl GameMemory {
             key1_prepare: false,
             double_speed: false,
             hdma: [0; 5],
+            hdma_source: 0,
+            hdma_destination: 0x8000,
+            hdma_blocks_remaining: 0,
+            hdma_hblank_active: false,
+            hdma_cpu_stall_cycles: 0,
             graphics_write_trace_count: 0,
             vram_first_writes_logged: 0,
             last_vram_write: None,
@@ -98,16 +108,50 @@ impl GameMemory {
         }
     }
 
-    fn run_vram_dma(&mut self, control: u8) {
-        let source = u16::from_be_bytes([self.hdma[0], self.hdma[1] & 0xF0]);
-        let destination = 0x8000 | (u16::from_be_bytes([self.hdma[2] & 0x1F, self.hdma[3] & 0xF0]) & 0x1FF0);
-        let length = ((control & 0x7F) as usize + 1) * 0x10;
-        let bank = (self.vram_bank & 1) as usize;
-        for offset in 0..length {
-            let value = self.read(source.wrapping_add(offset as u16));
-            self.vram[bank][(destination as usize - 0x8000 + offset) & 0x1FFF] = value;
+    fn start_vram_dma(&mut self, control: u8) {
+        if self.hdma_hblank_active && control & 0x80 == 0 {
+            self.hdma_hblank_active = false;
+            self.hdma[4] = 0x80 | self.hdma_blocks_remaining.saturating_sub(1);
+            return;
         }
-        self.hdma[4] = 0xFF; // completed; HBlank transfers are completed eagerly for now
+
+        self.hdma_source = u16::from_be_bytes([self.hdma[0], self.hdma[1] & 0xF0]);
+        self.hdma_destination = 0x8000 | (u16::from_be_bytes([self.hdma[2] & 0x1F, self.hdma[3] & 0xF0]) & 0x1FF0);
+        self.hdma_blocks_remaining = (control & 0x7F).wrapping_add(1);
+        self.hdma_hblank_active = control & 0x80 != 0;
+        self.hdma[4] = self.hdma_blocks_remaining - 1;
+
+        if !self.hdma_hblank_active {
+            while self.hdma_blocks_remaining != 0 {
+                self.transfer_hdma_block();
+            }
+        }
+    }
+
+    fn transfer_hdma_block(&mut self) {
+        let bank = (self.vram_bank & 1) as usize;
+        for offset in 0..0x10u16 {
+            let value = self.read(self.hdma_source.wrapping_add(offset));
+            let index = (self.hdma_destination.wrapping_add(offset) as usize - 0x8000) & 0x1FFF;
+            self.vram[bank][index] = value;
+        }
+        self.hdma_source = self.hdma_source.wrapping_add(0x10);
+        self.hdma_destination = 0x8000 | ((self.hdma_destination.wrapping_add(0x10) - 0x8000) & 0x1FF0);
+        self.hdma_blocks_remaining -= 1;
+        self.hdma[0] = (self.hdma_source >> 8) as u8;
+        self.hdma[1] = self.hdma_source as u8 & 0xF0;
+        self.hdma[2] = (self.hdma_destination >> 8) as u8 & 0x1F;
+        self.hdma[3] = self.hdma_destination as u8 & 0xF0;
+        self.hdma[4] = if self.hdma_blocks_remaining == 0 {
+            self.hdma_hblank_active = false;
+            0xFF
+        } else {
+            self.hdma_blocks_remaining - 1
+        };
+        // A CGB DMA block occupies the bus for 32 dots. CPU code cannot run
+        // during it; without this delay games can advance their map-loading
+        // state before the corresponding 16 bytes reach VRAM.
+        self.hdma_cpu_stall_cycles += 32;
     }
 
     pub fn try_speed_switch(&mut self) -> bool {
@@ -188,7 +232,7 @@ impl GameMemory {
             0xFF4D => self.key1_prepare = value & 1 != 0,
             0xFF46 => self.oam_dma(value),
             0xFF51..=0xFF54 => self.hdma[(address - 0xFF51) as usize] = value,
-            0xFF55 => self.run_vram_dma(value),
+            0xFF55 => self.start_vram_dma(value),
             0xFF70 => self.wram_bank = (value & 7).max(1),
             0xFF00..=0xFF03 | 0xFF08..=0xFF0E |
             0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F |
@@ -213,16 +257,22 @@ impl GameMemory {
     pub fn joypad_button_pressed(&mut self, button: u8) { self.joypad.button_pressed(button); }
     pub fn set_joypad_button(&mut self, button: u8, pressed: bool) { self.joypad.set_button(button, pressed); }
 
-    pub fn step(&mut self, cycles: u32) {
+    pub fn step(&mut self, cycles: u32) -> u32 {
         self.timer.step(cycles);
         self.apu.step(cycles);
         if self.timer.take_interrupt() { self.interrupt.request(2); }
         self.ppu.step(cycles, &self.oam, &self.vram[0], &self.vram[1]);
+        if self.hdma_hblank_active && self.ppu.take_hblank_started() {
+            self.transfer_hdma_block();
+        }
         if self.ppu.take_vblank_interrupt() { self.interrupt.request(0); }
         if self.ppu.take_stat_interrupt() { self.interrupt.request(1); }
         self.serial.step(cycles);
         if self.serial.take_interrupt() { self.interrupt.request(3); }
         if self.joypad.take_interrupt() { self.interrupt.request(4); }
+        let stall_cycles = self.hdma_cpu_stall_cycles;
+        self.hdma_cpu_stall_cycles = 0;
+        stall_cycles
     }
 
     pub fn background_tile_attributes(vram_bank_1: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
@@ -245,5 +295,51 @@ impl GameMemory {
             None => println!("LAST VRAM WRITE: none"),
         }
         println!("========================");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GameMemory;
+    use crate::rom::{Cartridge, Rom};
+
+    fn memory() -> GameMemory {
+        let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")
+            .expect("Nie można załadować ROM-u testowego");
+        GameMemory::new(Cartridge::new(rom))
+    }
+
+    #[test]
+    fn hblank_hdma_transfers_one_block_per_hblank() {
+        let mut memory = memory();
+        for offset in 0..0x20u16 { memory.write(0xC000 + offset, offset as u8); }
+        memory.write(0xFF51, 0xC0);
+        memory.write(0xFF52, 0x00);
+        memory.write(0xFF53, 0x00);
+        memory.write(0xFF54, 0x00);
+        memory.write(0xFF55, 0x81); // Two 16-byte blocks, HBlank mode.
+
+        assert_eq!(memory.read(0x8000), 0);
+        memory.step(252); // First Mode 3 -> Mode 0 transition.
+        assert_eq!(memory.read(0x800F), 0x0F);
+        assert_eq!(memory.read(0x8010), 0);
+        assert_eq!(memory.read(0xFF55), 0x00);
+
+        memory.step(456); // Advance to the following HBlank.
+        assert_eq!(memory.read(0x801F), 0x1F);
+        assert_eq!(memory.read(0xFF55), 0xFF);
+    }
+
+    #[test]
+    fn hblank_hdma_stalls_the_cpu_for_one_block() {
+        let mut memory = memory();
+        memory.write(0xFF51, 0xC0);
+        memory.write(0xFF52, 0x00);
+        memory.write(0xFF53, 0x00);
+        memory.write(0xFF54, 0x00);
+        memory.write(0xFF55, 0x80);
+
+        assert_eq!(memory.step(252), 32);
+        assert_eq!(memory.step(1), 0);
     }
 }

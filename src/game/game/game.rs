@@ -38,8 +38,16 @@ impl Game {
 
     pub fn step(&mut self) -> u32 {
         self.memory.set_cpu_pc(self.cpu.pc);
-        let cycles = self.cpu.step(&mut self.memory);
-        self.memory.step(cycles);
+        let mut cycles = self.cpu.step(&mut self.memory);
+        let mut dma_stall_cycles = self.memory.step(cycles);
+
+        // DMA advances the hardware clocks but does not execute an LR35902
+        // instruction. A transfer can finish at another mode boundary, so
+        // consume all resulting stall time before returning to the CPU.
+        while dma_stall_cycles != 0 {
+            cycles += dma_stall_cycles;
+            dma_stall_cycles = self.memory.step(dma_stall_cycles);
+        }
         cycles
     }
 

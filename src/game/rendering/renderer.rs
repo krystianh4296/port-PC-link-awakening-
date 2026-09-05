@@ -10,7 +10,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> Self {
-        Self::with_title("Zelda - Native Rust")
+        Self::with_title("Zelda - Game Boy Color Emulator")
     }
 
     pub fn with_title(title: &str) -> Self {
