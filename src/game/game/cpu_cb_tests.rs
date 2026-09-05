@@ -160,8 +160,13 @@ fn cb_bit_res_set_cover_all_bits_and_all_register_targets() {
                 write_target(&mut cpu, &mut memory, z, initial);
                 cpu.f = 0x10 | 0x40;
 
-                assert_eq!(cpu.step(&mut memory), if x == 1 && z == 6 { 12 } else if z == 6 { 16 } else { 8 });
-                assert_eq!(cpu.pc, 0xC002);
+                let expected_cycles = if z == 6 {
+                    if x == 1 { 12 } else { 16 }
+                } else {
+                    8
+                };
+                assert_eq!(cpu.step(&mut memory), expected_cycles, "CB {:02X} cycles", opcode);
+                assert_eq!(cpu.pc, 0xC002, "CB {:02X} PC", opcode);
 
                 match x {
                     1 => {
@@ -189,15 +194,21 @@ fn cb_rotate_shift_group_covers_all_operations_with_carry_and_zero_flags() {
     for y in 0u8..=7 {
         for &initial in &[0x00u8, 0x01, 0x80, 0xFF, 0x96] {
             for &carry_in in &[false, true] {
-                let opcode = y << 3;
+                let opcode = (y << 3) | 0x07;
                 let (mut cpu, mut memory) = cpu_at_cb(opcode);
                 cpu.a = initial;
                 cpu.f = if carry_in { 0x10 } else { 0 };
 
                 let (expected, carry) = expected_rotate_shift(y, initial, carry_in);
-                assert_eq!(cpu.step(&mut memory), 8, "CB {:02X}", opcode | 0x07);
-                assert_eq!(cpu.a, expected, "CB {:02X} result", opcode | 0x07);
-                assert_eq!(cpu.f, (if expected == 0 { 0x80 } else { 0 }) | if carry { 0x10 } else { 0 }, "CB {:02X} flags", opcode | 0x07);
+                assert_eq!(cpu.step(&mut memory), 8, "CB {:02X}", opcode);
+                assert_eq!(cpu.a, expected, "CB {:02X} result", opcode);
+                assert_eq!(
+                    cpu.f,
+                    (if expected == 0 { 0x80 } else { 0 })
+                        | (if carry { 0x10 } else { 0 }),
+                    "CB {:02X} flags",
+                    opcode
+                );
             }
         }
     }
