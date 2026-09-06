@@ -57,27 +57,17 @@ impl Ppu {
         match self.mode {
             2 if self.cycle_counter >= 80 => {
                 self.cycle_counter = 0;
-                // Sprite selection and the low SCX bits are sampled at the
-                // start of pixel transfer. Keep this duration fixed until
-                // HBlank so one scanline always remains 456 dots long.
                 self.mode3_cycles = self.mode3_length(oam);
                 self.set_mode(3);
             }
             3 if self.cycle_counter >= self.mode3_cycles => {
                 self.cycle_counter = 0;
                 if self.ly < 144 {
-                    let line = self.render_background_scanline_with_window(
-                        vram0,
-                        vram1,
-                        self.ly,
-                        self.window_line,
-                    );
+                    let line = self.render_background_scanline_with_window(vram0, vram1, self.ly, self.window_line);
                     let start = self.ly as usize * 160;
                     self.framebuffer[start..start + 160].copy_from_slice(&line);
                     self.render_sprites_scanline(oam, vram0, vram1, self.ly);
-                    if self.window_is_visible_on_line(self.ly) {
-                        self.window_line = self.window_line.wrapping_add(1);
-                    }
+                    if self.window_is_visible_on_line(self.ly) { self.window_line = self.window_line.wrapping_add(1); }
                 }
                 self.set_mode(0);
                 self.hblank_started = true;
@@ -104,43 +94,25 @@ impl Ppu {
 
     fn mode3_length(&self, oam: &[u8; 0xA0]) -> u32 {
         let mut length = 172 + u32::from(self.scx & 7);
-        if self.window_is_visible_on_line(self.ly) {
-            length += 6;
-        }
-
+        if self.window_is_visible_on_line(self.ly) { length += 6; }
         let sprite_height = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
         let mut sprites: Vec<(u8, usize)> = (0..40)
-            .filter(|&index| {
-                let y = oam[index * 4] as i16 - 16;
-                y <= self.ly as i16 && y + sprite_height > self.ly as i16
-            })
-            .take(10)
-            .map(|index| (oam[index * 4 + 1], index))
-            .collect();
+            .filter(|&index| { let y = oam[index * 4] as i16 - 16; y <= self.ly as i16 && y + sprite_height > self.ly as i16 })
+            .take(10).map(|index| (oam[index * 4 + 1], index)).collect();
         sprites.sort_unstable();
-
         let mut seen_tiles = [false; 32];
         for (oam_x, _) in sprites {
-            if oam_x == 0 {
-                length += 11;
-                continue;
-            }
+            if oam_x == 0 { length += 11; continue; }
             let screen_x = i16::from(oam_x) - 8;
             let fetch_x = screen_x.max(0);
-            let tile_x = if self.window_is_visible_on_line(self.ly)
-                && screen_x >= i16::from(self.wx) - 7
-            {
+            let tile_x = if self.window_is_visible_on_line(self.ly) && screen_x >= i16::from(self.wx) - 7 {
                 ((fetch_x - (i16::from(self.wx) - 7)) as usize / 8) & 31
-            } else {
-                ((fetch_x + i16::from(self.scx)) as usize / 8) & 31
-            };
+            } else { ((fetch_x + i16::from(self.scx)) as usize / 8) & 31 };
             if !seen_tiles[tile_x] {
                 seen_tiles[tile_x] = true;
                 let pixel_in_tile = (fetch_x as usize + usize::from(self.scx)) & 7;
                 length += (5usize.saturating_sub(pixel_in_tile) + 6) as u32;
-            } else {
-                length += 6;
-            }
+            } else { length += 6; }
         }
         length.min(289)
     }
@@ -167,19 +139,8 @@ impl Ppu {
         match address {
             0xFF40 => {
                 let was = self.lcdc & 0x80 != 0; let now = value & 0x80 != 0; self.lcdc = value;
-                if was && !now {
-                    self.ly = 0;
-                    self.cycle_counter = 0;
-                    self.mode3_cycles = 172;
-                    self.frame_ready = false;
-                    self.set_mode(0);
-                } else if !was && now {
-                    self.ly = 0;
-                    self.cycle_counter = 0;
-                    self.mode3_cycles = 172;
-                    self.frame_ready = false;
-                    self.set_mode(2);
-                }
+                if was && !now { self.ly = 0; self.cycle_counter = 0; self.mode3_cycles = 172; self.frame_ready = false; self.set_mode(0); }
+                else if !was && now { self.ly = 0; self.cycle_counter = 0; self.mode3_cycles = 172; self.frame_ready = false; self.set_mode(2); }
                 self.update_lyc_flag(); self.update_stat_interrupt();
             }
             0xFF41 => { self.stat = (self.stat & 7) | (value & 0x78) | 0x80; self.update_stat_interrupt(); }
@@ -225,7 +186,16 @@ impl Ppu {
         std::array::from_fn(|x| { let bit = 7 - x; ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1) })
     }
 
-    pub fn background_tile_attributes(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 { Self::background_tile_index(vram, bg_x, bg_y, map_base) }
+    /// Returns the CGB attribute byte from VRAM bank 1 for the tile at BG coordinates.
+    /// This must not read bank 0: bank 0 contains the tile-number map, while bank 1
+    /// contains the corresponding CGB attribute map at the same offset.
+    pub fn background_tile_attributes(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
+        let map_offset = (map_base - 0x8000) as usize;
+        let tile_x = (bg_x as usize) >> 3;
+        let tile_y = (bg_y as usize) >> 3;
+        vram[map_offset + tile_y * 32 + tile_x]
+    }
+
     pub fn background_tile_attribute_info(a: u8) -> (u8, bool, bool, bool, bool) { (a & 7, a & 8 != 0, a & 0x20 != 0, a & 0x40 != 0, a & 0x80 != 0) }
     pub fn cgb_rgb555_to_argb(color: u16) -> u32 {
         let r = ((color & 0x1F) as u32 * 255) / 31; let g = (((color >> 5) & 0x1F) as u32 * 255) / 31; let b = (((color >> 10) & 0x1F) as u32 * 255) / 31;
@@ -240,39 +210,22 @@ impl Ppu {
         self.render_background_scanline_with_window(vram0, vram1, y, y.wrapping_sub(self.wy))
     }
 
-    fn window_is_visible_on_line(&self, y: u8) -> bool {
-        self.lcdc & 0x20 != 0 && y >= self.wy && self.wx <= 166
-    }
+    fn window_is_visible_on_line(&self, y: u8) -> bool { self.lcdc & 0x20 != 0 && y >= self.wy && self.wx <= 166 }
 
-    fn render_background_scanline_with_window(
-        &self,
-        vram0: &[u8; 0x2000],
-        vram1: &[u8; 0x2000],
-        y: u8,
-        window_line: u8,
-    ) -> [u32; 160] {
+    fn render_background_scanline_with_window(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], y: u8, window_line: u8) -> [u32; 160] {
         let mut out = [0u32; 160];
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
         for x in 0..160usize {
-            let use_window = self.window_is_visible_on_line(y)
-                && x as i16 >= self.wx as i16 - 7;
+            let use_window = self.window_is_visible_on_line(y) && x as i16 >= self.wx as i16 - 7;
             let (map, bg_x, bg_y) = if use_window {
-                (
-                    if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 },
-                    (x as i16 - (self.wx as i16 - 7)) as usize,
-                    window_line as usize,
-                )
+                (if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 }, (x as i16 - (self.wx as i16 - 7)) as usize, window_line as usize)
             } else {
-                (
-                    if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 },
-                    (x + self.scx as usize) & 0xFF,
-                    (y as usize + self.scy as usize) & 0xFF,
-                )
+                (if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 }, (x + self.scx as usize) & 0xFF, (y as usize + self.scy as usize) & 0xFF)
             };
             let tile_x = bg_x >> 3; let tile_y = bg_y >> 3;
             let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
             let tile_index = vram0[map_index];
-            let attr = vram1[map_index];
+            let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map);
             let (palette, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
             let tile_vram = if bank { vram1 } else { vram0 };
             let tile = Self::background_tile_data(tile_vram, tile_index, base);
@@ -284,36 +237,19 @@ impl Ppu {
         out
     }
 
-    fn background_pixel_info_at(
-        &self,
-        vram0: &[u8; 0x2000],
-        vram1: &[u8; 0x2000],
-        x: usize,
-        y: u8,
-    ) -> (u8, bool) {
-        if self.lcdc & 0x01 == 0 {
-            return (0, false);
-        }
-        let use_window = self.window_is_visible_on_line(y)
-            && x as i16 >= self.wx as i16 - 7;
+    fn background_pixel_info_at(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], x: usize, y: u8) -> (u8, bool) {
+        if self.lcdc & 0x01 == 0 { return (0, false); }
+        let use_window = self.window_is_visible_on_line(y) && x as i16 >= self.wx as i16 - 7;
         let (map, bg_x, bg_y) = if use_window {
-            (
-                if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 },
-                (x as i16 - (self.wx as i16 - 7)) as usize,
-                self.window_line as usize,
-            )
+            (if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 }, (x as i16 - (self.wx as i16 - 7)) as usize, self.window_line as usize)
         } else {
-            (
-                if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 },
-                (x + self.scx as usize) & 0xFF,
-                (y as usize + self.scy as usize) & 0xFF,
-            )
+            (if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 }, (x + self.scx as usize) & 0xFF, (y as usize + self.scy as usize) & 0xFF)
         };
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
         let tile_x = bg_x >> 3; let tile_y = bg_y >> 3;
         let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
         let tile_index = vram0[map_index];
-        let attr = vram1[map_index];
+        let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map);
         let (_, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
         let tile_vram = if bank { vram1 } else { vram0 };
         let tile = Self::background_tile_data(tile_vram, tile_index, base);
@@ -332,18 +268,11 @@ impl Ppu {
         if self.lcdc & 0x02 == 0 { return; }
         const WIDTH: usize = 160;
         let sprite_height = if self.lcdc & 0x04 != 0 { 16usize } else { 8usize };
-
-        // Mode 2 selects at most ten sprites per scanline in OAM order.
-        // Draw the selected list in reverse so a lower OAM index retains
-        // priority when sprites overlap.
         let visible_sprites: Vec<usize> = (0..40)
             .filter(|&index| {
                 let sprite_y = oam[index * 4] as i32 - 16;
                 sprite_y <= line as i32 && sprite_y + sprite_height as i32 > line as i32
-            })
-            .take(10)
-            .collect();
-
+            }).take(10).collect();
         for index in visible_sprites.into_iter().rev() {
             let base = index * 4;
             let y = oam[base] as i32;
@@ -353,25 +282,20 @@ impl Ppu {
             let sprite_y = y - 16;
             let sprite_x = x - 8;
             if sprite_y > line as i32 || sprite_y + sprite_height as i32 <= line as i32 { continue; }
-
             let flip_y = attrs & 0x40 != 0;
             let flip_x = attrs & 0x20 != 0;
             let behind_bg = attrs & 0x80 != 0;
             let palette = attrs & 0x07;
             let tile_vram = if attrs & 0x08 != 0 { vram1 } else { vram0 };
-
             let row = (line as i32 - sprite_y) as usize;
             let sprite_row = if flip_y { sprite_height - 1 - row } else { row };
             if sprite_row >= sprite_height { continue; }
-            let tile_id = if sprite_height == 16 {
-                (tile_index & 0xFE).wrapping_add(if sprite_row >= 8 { 1 } else { 0 })
-            } else { tile_index };
+            let tile_id = if sprite_height == 16 { (tile_index & 0xFE).wrapping_add(if sprite_row >= 8 { 1 } else { 0 }) } else { tile_index };
             let tile_offset = tile_id as usize * 16;
             if tile_offset + 15 >= tile_vram.len() { continue; }
             let pixel_row = sprite_row & 7;
             let low = tile_vram[tile_offset + pixel_row * 2];
             let high = tile_vram[tile_offset + pixel_row * 2 + 1];
-
             for col in 0..8usize {
                 let screen_x = sprite_x + col as i32;
                 if screen_x < 0 || screen_x >= WIDTH as i32 { continue; }
@@ -385,5 +309,36 @@ impl Ppu {
                 self.framebuffer[line as usize * WIDTH + sx] = self.obj_palette_color(palette, color_id);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Ppu;
+
+    #[test]
+    fn background_tile_attributes_reads_vram_bank_1_at_same_map_offset() {
+        let mut bank0 = [0u8; 0x2000];
+        let mut bank1 = [0u8; 0x2000];
+        let map_base = 0x9800;
+        let bg_x = 17 * 8 + 3;
+        let bg_y = 9 * 8 + 5;
+        let index = (map_base - 0x8000) as usize + 9 * 32 + 17;
+
+        bank0[index] = 0x12;
+        bank1[index] = 0xE9;
+
+        assert_eq!(Ppu::background_tile_attributes(&bank1, bg_x, bg_y, map_base), 0xE9);
+        assert_ne!(Ppu::background_tile_attributes(&bank0, bg_x, bg_y, map_base), 0xE9);
+    }
+
+    #[test]
+    fn background_tile_attribute_info_decodes_cgb_attribute_bits() {
+        let (palette, bank, flip_x, flip_y, priority) = Ppu::background_tile_attribute_info(0xED);
+        assert_eq!(palette, 5);
+        assert!(bank);
+        assert!(flip_x);
+        assert!(flip_y);
+        assert!(priority);
     }
 }
