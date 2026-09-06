@@ -246,6 +246,16 @@ impl Ppu {
 
     fn render_background_scanline_with_window(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], y: u8, window_line: u8) -> [u32; 160] {
         let mut out = [0u32; 160];
+
+        #[cfg(test)]
+        if (self.scy == 255 || self.window_line < 4)
+            && (y <= 3 || y >= 250)
+        {
+            for x in 0..20usize {
+                self.debug_background_pixel(vram0, vram1, x, y);
+            }
+        }
+
         let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
         for x in 0..160usize {
             let use_window = self.window_is_visible_on_line(y) && x as i16 >= self.wx as i16 - 7;
@@ -265,8 +275,19 @@ impl Ppu {
             #[cfg(test)]
             if self.scy == 255 && (y == 0 || y == 1) && x == 0 {
                 eprintln!(
-                    "SCY TEST: y={}, scy={}, bg_y={}, tile_y={}, map={:#06X}",
-                    y, self.scy, bg_y, bg_y >> 3, map
+                    "SCY TEST: y={}, scy={}, scx={}, bg_x={}, bg_y={}, \
+                    tile_x={}, tile_y={}, map={:#06X}, map_index={:#06X}, \
+                    tile={:#04X}",
+                    y,
+                    self.scy,
+                    self.scx,
+                    bg_x,
+                    bg_y,
+                    tile_x,
+                    tile_y,
+                    map,
+                    map_index,
+                    tile_index,
                 );
             }
             let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
@@ -387,4 +408,139 @@ mod tests {
         assert!(flip_y);
         assert!(priority);
     }
+
+    #[cfg(test)]
+fn debug_background_pixel(
+    &self,
+    vram0: &[u8; 0x2000],
+    vram1: &[u8; 0x2000],
+    x: usize,
+    y: u8,
+) {
+    let use_window =
+        self.window_is_visible_on_line(y)
+            && x as i16 >= self.wx as i16 - 7;
+
+    let (map, bg_x, bg_y) = if use_window {
+        (
+            if self.lcdc & 0x40 != 0 {
+                0x9C00
+            } else {
+                0x9800
+            },
+            (x as i16 - (self.wx as i16 - 7)) as usize,
+            self.window_line as usize,
+        )
+    } else {
+        (
+            if self.lcdc & 0x08 != 0 {
+                0x9C00
+            } else {
+                0x9800
+            },
+            (x + self.scx as usize) & 0xFF,
+            (y as usize + self.scy as usize) & 0xFF,
+        )
+    };
+
+    let base = if self.lcdc & 0x10 != 0 {
+        0x8000
+    } else {
+        0x9000
+    };
+
+    let tile_x = bg_x >> 3;
+    let tile_y = bg_y >> 3;
+
+    let map_index =
+        (map - 0x8000) as usize
+            + tile_y * 32
+            + tile_x;
+
+    let tile_index = vram0[map_index];
+
+    let attr =
+        Self::background_tile_attributes(
+            vram1,
+            bg_x as u8,
+            bg_y as u8,
+            map,
+        );
+
+    let (palette, bank, flip_x, flip_y, priority) =
+        Self::background_tile_attribute_info(attr);
+
+    let tile_vram = if bank { vram1 } else { vram0 };
+
+    let tile = Self::background_tile_data(
+        tile_vram,
+        tile_index,
+        base,
+    );
+
+    let row = if flip_y {
+        7 - (bg_y & 7)
+    } else {
+        bg_y & 7
+    };
+
+    let px = if flip_x {
+        7 - (bg_x & 7)
+    } else {
+        bg_x & 7
+    };
+
+    let color_id =
+        Self::decode_tile_row(&tile, row)[px];
+
+    let tile_offset =
+        if base == 0x8000 {
+            tile_index as usize * 16
+        } else {
+            let signed_index = tile_index as i8 as isize;
+            (0x1000isize + signed_index * 16) as usize
+        };
+
+    eprintln!(
+        concat!(
+            "PPU BG: ",
+            "screen=({:03},{:03}) ",
+            "source=({:03},{:03}) ",
+            "window={} ",
+            "map={:#06X} ",
+            "map_index={:#06X} ",
+            "tile={:#04X} ",
+            "attr={:#04X} ",
+            "bank={} ",
+            "palette={} ",
+            "flip_x={} ",
+            "flip_y={} ",
+            "priority={} ",
+            "base={:#06X} ",
+            "tile_offset={:#06X} ",
+            "row={} ",
+            "px={} ",
+            "color={}"
+        ),
+        x,
+        y,
+        bg_x,
+        bg_y,
+        use_window,
+        map,
+        map_index,
+        tile_index,
+        attr,
+        if bank { 1 } else { 0 },
+        palette,
+        flip_x,
+        flip_y,
+        priority,
+        base,
+        tile_offset,
+        row,
+        px,
+        color_id,
+    );
+}
 }
