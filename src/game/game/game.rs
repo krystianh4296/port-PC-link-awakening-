@@ -133,8 +133,8 @@ impl Game {
     }
 
     fn rom_hash(&self) -> [u8; 16] {
-        let mut bytes = Vec::with_capacity(self.rom().size());
-        for address in 0..self.rom().size() {
+        let mut bytes = Vec::with_capacity(self.rom().len());
+        for address in 0..self.rom().len() {
             bytes.push(self.rom().read(address));
         }
         md5::compute(bytes).0
@@ -160,7 +160,7 @@ impl Game {
             sp: self.cpu.sp, pc: self.cpu.pc,
             ime: self.cpu.ime, ime_pending: self.cpu.ime_pending,
             halted: self.cpu.halted, halt_bug: self.cpu.halt_bug,
-            opcode_counts: self.cpu.opcode_counts,
+            opcode_counts: self.cpu.opcode_counts.to_vec(),
         };
 
         let previous_vram_bank = self.memory.read(0xFF4F) & 1;
@@ -211,7 +211,8 @@ impl Game {
         self.cpu.sp = state.cpu.sp; self.cpu.pc = state.cpu.pc;
         self.cpu.ime = state.cpu.ime; self.cpu.ime_pending = state.cpu.ime_pending;
         self.cpu.halted = state.cpu.halted; self.cpu.halt_bug = state.cpu.halt_bug;
-        self.cpu.opcode_counts = state.cpu.opcode_counts;
+        self.cpu.opcode_counts = state.cpu.opcode_counts.try_into()
+            .map_err(|_| "Save-state ma nieprawidłową liczbę liczników opcode.".to_string())?;
 
         self.memory.write(0xFF4F, 0);
         self.write_range(0x8000, &state.vram[..0x2000]);
