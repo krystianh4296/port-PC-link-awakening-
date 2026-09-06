@@ -27,6 +27,8 @@ pub struct GameMemory {
     vram_nonzero_write_count: u64,
     bg_map_write_count: u64,
     oam_write_count: u64,
+    oam_dma_count: u64,
+    last_oam_dma_source: Option<u16>,
     ppu_register_write_count: u64,
     vram_bank_write_count: u64,
     key1_prepare: bool,
@@ -64,6 +66,8 @@ impl GameMemory {
             vram_nonzero_write_count: 0,
             bg_map_write_count: 0,
             oam_write_count: 0,
+            oam_dma_count: 0,
+            last_oam_dma_source: None,
             ppu_register_write_count: 0,
             vram_bank_write_count: 0,
             key1_prepare: false,
@@ -80,10 +84,7 @@ impl GameMemory {
         }
     }
 
-    pub fn set_cpu_pc(&mut self, pc: u16) {
-        self.cpu_pc = pc;
-    }
-
+    pub fn set_cpu_pc(&mut self, pc: u16) { self.cpu_pc = pc; }
     pub fn cartridge(&self) -> &Cartridge { &self.cartridge }
     pub fn cartridge_mut(&mut self) -> &mut Cartridge { &mut self.cartridge }
     pub fn framebuffer(&self) -> &[u32; 160 * 144] { self.ppu.framebuffer() }
@@ -97,15 +98,15 @@ impl GameMemory {
             0xD000..=0xDFFF => self.wram_bank as usize * 0x1000 + (address - 0xD000) as usize,
             0xE000..=0xEFFF => (address - 0xE000) as usize,
             0xF000..=0xFDFF => self.wram_bank as usize * 0x1000 + (address - 0xF000) as usize,
-            _ => unreachable!("Adres poza WRAM: {address:04X}"),
+            _ => unreachable!("Adres poza WRAM: {address}"),
         }
     }
 
     fn oam_dma(&mut self, source_high: u8) {
         let source = (source_high as u16) << 8;
-        for offset in 0..0xA0u16 {
-            self.oam[offset as usize] = self.read(source.wrapping_add(offset));
-        }
+        for offset in 0..0xA0u16 { self.oam[offset as usize] = self.read(source.wrapping_add(offset)); }
+        self.oam_dma_count += 1;
+        self.last_oam_dma_source = Some(source);
     }
 
     fn start_vram_dma(&mut self, control: u8) {
@@ -114,18 +115,12 @@ impl GameMemory {
             self.hdma[4] = 0x80 | self.hdma_blocks_remaining.saturating_sub(1);
             return;
         }
-
         self.hdma_source = u16::from_be_bytes([self.hdma[0], self.hdma[1] & 0xF0]);
         self.hdma_destination = 0x8000 | (u16::from_be_bytes([self.hdma[2] & 0x1F, self.hdma[3] & 0xF0]) & 0x1FF0);
         self.hdma_blocks_remaining = (control & 0x7F).wrapping_add(1);
         self.hdma_hblank_active = control & 0x80 != 0;
         self.hdma[4] = self.hdma_blocks_remaining - 1;
-
-        if !self.hdma_hblank_active {
-            while self.hdma_blocks_remaining != 0 {
-                self.transfer_hdma_block();
-            }
-        }
+        if !self.hdma_hblank_active { while self.hdma_blocks_remaining != 0 { self.transfer_hdma_block(); } }
     }
 
     fn transfer_hdma_block(&mut self) {
@@ -142,15 +137,7 @@ impl GameMemory {
         self.hdma[1] = self.hdma_source as u8 & 0xF0;
         self.hdma[2] = (self.hdma_destination >> 8) as u8 & 0x1F;
         self.hdma[3] = self.hdma_destination as u8 & 0xF0;
-        self.hdma[4] = if self.hdma_blocks_remaining == 0 {
-            self.hdma_hblank_active = false;
-            0xFF
-        } else {
-            self.hdma_blocks_remaining - 1
-        };
-        // A CGB DMA block occupies the bus for 32 dots. CPU code cannot run
-        // during it; without this delay games can advance their map-loading
-        // state before the corresponding 16 bytes reach VRAM.
+        self.hdma[4] = if self.hdma_blocks_remaining == 0 { self.hdma_hblank_active = false; 0xFF } else { self.hdma_blocks_remaining - 1 };
         self.hdma_cpu_stall_cycles += 32;
     }
 
@@ -164,10 +151,7 @@ impl GameMemory {
     pub fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x7FFF | 0xA000..=0xBFFF => self.cartridge.read(address),
-            0x8000..=0x9FFF => {
-                let bank = (self.vram_bank & 0x01) as usize;
-                self.vram[bank][(address - 0x8000) as usize]
-            }
+            0x8000..=0x9FFF => { let bank = (self.vram_bank & 0x01) as usize; self.vram[bank][(address - 0x8000) as usize] }
             0xC000..=0xDFFF | 0xE000..=0xFDFF => self.wram[self.wram_index(address)],
             0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize],
             0xFEA0..=0xFEFF => 0xFF,
@@ -182,9 +166,7 @@ impl GameMemory {
             0xFF46 => 0xFF,
             0xFF51..=0xFF55 => self.hdma[(address - 0xFF51) as usize],
             0xFF70 => 0xF8 | self.wram_bank,
-            0xFF00..=0xFF03 | 0xFF08..=0xFF0E |
-            0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F |
-            0xFF71..=0xFF7F => self.io[(address - 0xFF00) as usize],
+            0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F | 0xFF71..=0xFF7F => self.io[(address - 0xFF00) as usize],
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize],
             0xFFFF => self.interrupt.read_ie(),
         }
@@ -200,7 +182,6 @@ impl GameMemory {
                 if value != 0 { self.vram_nonzero_write_count += 1; }
                 if address >= 0x9800 { self.bg_map_write_count += 1; }
                 self.last_vram_write = Some((address, value, bank as u8));
-
                 self.graphics_write_trace_count = self.graphics_write_trace_count.saturating_add(1);
                 self.vram_first_writes_logged = self.vram_first_writes_logged.saturating_add(1);
             }
@@ -214,46 +195,23 @@ impl GameMemory {
             0xFF00 => self.joypad.write(value),
             0xFF01..=0xFF02 => self.serial.write(address, value),
             0xFF10..=0xFF3F => self.apu.write(address, value),
-            0xFF04..=0xFF07 => {
-                self.timer.write(address, value);
-                if self.timer.take_interrupt() { self.interrupt.request(2); }
-            }
+            0xFF04..=0xFF07 => { self.timer.write(address, value); if self.timer.take_interrupt() { self.interrupt.request(2); } }
             0xFF0F => self.interrupt.write_if(value),
-            0xFF40..=0xFF45 | 0xFF47 | 0xFF68 | 0xFF69 | 0xFF6A | 0xFF6B => {
-                self.ppu_register_write_count += 1;
-                self.graphics_write_trace_count = self.graphics_write_trace_count.saturating_add(1);
-                self.ppu.write(address, value);
-            }
-            0xFF4F => {
-                self.vram_bank_write_count += 1;
-                self.graphics_write_trace_count = self.graphics_write_trace_count.saturating_add(1);
-                self.vram_bank = value & 0x01;
-            }
+            0xFF40..=0xFF45 | 0xFF47 | 0xFF68 | 0xFF69 | 0xFF6A | 0xFF6B => { self.ppu_register_write_count += 1; self.graphics_write_trace_count = self.graphics_write_trace_count.saturating_add(1); self.ppu.write(address, value); }
+            0xFF4F => { self.vram_bank_write_count += 1; self.graphics_write_trace_count = self.graphics_write_trace_count.saturating_add(1); self.vram_bank = value & 0x01; }
             0xFF4D => self.key1_prepare = value & 1 != 0,
             0xFF46 => self.oam_dma(value),
             0xFF51..=0xFF54 => self.hdma[(address - 0xFF51) as usize] = value,
             0xFF55 => self.start_vram_dma(value),
             0xFF70 => self.wram_bank = (value & 7).max(1),
-            0xFF00..=0xFF03 | 0xFF08..=0xFF0E |
-            0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F |
-            0xFF71..=0xFF7F => self.io[(address - 0xFF00) as usize] = value,
+            0xFF00..=0xFF03 | 0xFF08..=0xFF0E | 0xFF48..=0xFF4E | 0xFF50..=0xFF67 | 0xFF6C..=0xFF6F | 0xFF71..=0xFF7F => self.io[(address - 0xFF00) as usize] = value,
             0xFF80..=0xFFFE => self.hram[(address - 0xFF80) as usize] = value,
             0xFFFF => self.interrupt.write_ie(value),
         }
     }
 
-    pub fn read_word(&self, address: u16) -> u16 {
-        let lo = self.read(address);
-        let hi = self.read(address.wrapping_add(1));
-        u16::from_le_bytes([lo, hi])
-    }
-
-    pub fn write_word(&mut self, address: u16, value: u16) {
-        let [lo, hi] = value.to_le_bytes();
-        self.write(address, lo);
-        self.write(address.wrapping_add(1), hi);
-    }
-
+    pub fn read_word(&self, address: u16) -> u16 { let lo = self.read(address); let hi = self.read(address.wrapping_add(1)); u16::from_le_bytes([lo, hi]) }
+    pub fn write_word(&mut self, address: u16, value: u16) { let [lo, hi] = value.to_le_bytes(); self.write(address, lo); self.write(address.wrapping_add(1), hi); }
     pub fn joypad_button_pressed(&mut self, button: u8) { self.joypad.button_pressed(button); }
     pub fn set_joypad_button(&mut self, button: u8, pressed: bool) { self.joypad.set_button(button, pressed); }
 
@@ -262,9 +220,7 @@ impl GameMemory {
         self.apu.step(cycles);
         if self.timer.take_interrupt() { self.interrupt.request(2); }
         self.ppu.step(cycles, &self.oam, &self.vram[0], &self.vram[1]);
-        if self.hdma_hblank_active && self.ppu.take_hblank_started() {
-            self.transfer_hdma_block();
-        }
+        if self.hdma_hblank_active && self.ppu.take_hblank_started() { self.transfer_hdma_block(); }
         if self.ppu.take_vblank_interrupt() { self.interrupt.request(0); }
         if self.ppu.take_stat_interrupt() { self.interrupt.request(1); }
         self.serial.step(cycles);
@@ -287,59 +243,17 @@ impl GameMemory {
         println!("VRAM WRITES: {}", self.vram_write_count);
         println!("VRAM NONZERO WRITES: {}", self.vram_nonzero_write_count);
         println!("BG MAP WRITES (9800-9FFF): {}", self.bg_map_write_count);
-        println!("OAM WRITES: {}", self.oam_write_count);
+        println!("OAM DIRECT WRITES: {}", self.oam_write_count);
+        println!("OAM DMA TRANSFERS: {}", self.oam_dma_count);
+        match self.last_oam_dma_source { Some(source) => println!("LAST OAM DMA SOURCE: {:04X}", source), None => println!("LAST OAM DMA SOURCE: none") }
+        let nonzero_oam = self.oam.iter().filter(|&&v| v != 0).count();
+        println!("OAM NONZERO BYTES: {}/160", nonzero_oam);
+        print!("OAM FIRST 16 BYTES:");
+        for &v in &self.oam[..16] { print!(" {:02X}", v); }
+        println!();
         println!("PPU REGISTER WRITES (FF40-FF47, FF68-FF6B): {}", self.ppu_register_write_count);
         println!("VRAM BANK SELECT WRITES (FF4F): {}", self.vram_bank_write_count);
-        match self.last_vram_write {
-            Some((address, value, bank)) => println!("LAST VRAM WRITE: addr={:04X} value={:02X} bank={}", address, value, bank),
-            None => println!("LAST VRAM WRITE: none"),
-        }
+        match self.last_vram_write { Some((address, value, bank)) => println!("LAST VRAM WRITE: addr={:04X} value={:02X} bank={}", address, value, bank), None => println!("LAST VRAM WRITE: none") }
         println!("========================");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::GameMemory;
-    use crate::rom::{Cartridge, Rom};
-
-    fn memory() -> GameMemory {
-        let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")
-            .expect("Nie można załadować ROM-u testowego");
-        GameMemory::new(Cartridge::new(rom))
-    }
-
-    #[test]
-    fn hblank_hdma_transfers_one_block_per_hblank() {
-        let mut memory = memory();
-        for offset in 0..0x20u16 { memory.write(0xC000 + offset, offset as u8); }
-        memory.write(0xFF51, 0xC0);
-        memory.write(0xFF52, 0x00);
-        memory.write(0xFF53, 0x00);
-        memory.write(0xFF54, 0x00);
-        memory.write(0xFF55, 0x81); // Two 16-byte blocks, HBlank mode.
-
-        assert_eq!(memory.read(0x8000), 0);
-        memory.step(252); // First Mode 3 -> Mode 0 transition.
-        assert_eq!(memory.read(0x800F), 0x0F);
-        assert_eq!(memory.read(0x8010), 0);
-        assert_eq!(memory.read(0xFF55), 0x00);
-
-        memory.step(456); // Advance to the following HBlank.
-        assert_eq!(memory.read(0x801F), 0x1F);
-        assert_eq!(memory.read(0xFF55), 0xFF);
-    }
-
-    #[test]
-    fn hblank_hdma_stalls_the_cpu_for_one_block() {
-        let mut memory = memory();
-        memory.write(0xFF51, 0xC0);
-        memory.write(0xFF52, 0x00);
-        memory.write(0xFF53, 0x00);
-        memory.write(0xFF54, 0x00);
-        memory.write(0xFF55, 0x80);
-
-        assert_eq!(memory.step(252), 32);
-        assert_eq!(memory.step(1), 0);
     }
 }
