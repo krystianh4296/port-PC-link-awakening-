@@ -92,6 +92,88 @@ fn print_live_bg_attribute_diagnostics(game: &mut Game) {
     println!("==============================\n");
 }
 
+/// Dumps the actual bank-0 tile-number map used by the BG renderer, together
+/// with the bank-1 attributes for the same 32x32 entries. The visible 20x18
+/// screen region is also printed using the current SCX/SCY. This separates a
+/// bad tile-number map from bad CGB attributes or bad tile decoding.
+fn print_live_bg_tile_map_diagnostics(game: &mut Game) {
+    let previous_bank = game.read(0xFF4F) & 1;
+    let lcdc = game.read(0xFF40);
+    let scx = game.read(0xFF43);
+    let scy = game.read(0xFF42);
+    let map_base = if lcdc & 0x08 != 0 { 0x9C00u16 } else { 0x9800u16 };
+    let tile_base = if lcdc & 0x10 != 0 { 0x8000u16 } else { 0x9000u16 };
+
+    let mut tile_map = [0u8; 32 * 32];
+    let mut attributes = [0u8; 32 * 32];
+
+    game.write(0xFF4F, 0);
+    for i in 0..tile_map.len() {
+        tile_map[i] = game.read(map_base + i as u16);
+    }
+
+    game.write(0xFF4F, 1);
+    for i in 0..attributes.len() {
+        attributes[i] = game.read(map_base + i as u16);
+    }
+
+    game.write(0xFF4F, previous_bank);
+
+    let nonzero_tiles = tile_map.iter().filter(|&&t| t != 0).count();
+    let unique_tiles = {
+        let mut seen = [false; 256];
+        for &tile in &tile_map { seen[tile as usize] = true; }
+        seen.iter().filter(|&&v| v).count()
+    };
+
+    let visible_x = (scx as usize) >> 3;
+    let visible_y = (scy as usize) >> 3;
+
+    println!("\n=== LIVE CGB BG TILE MAP ===");
+    println!("map={:04X} tile_base={:04X} LCDC={:02X} SCX={:02X} SCY={:02X}",
+        map_base, tile_base, lcdc, scx, scy);
+    println!("bank0 map: nonzero={}/1024 unique_tile_ids={}", nonzero_tiles, unique_tiles);
+    println!("full bank0 tile-number map (32x32):");
+    for row in 0..32 {
+        print!("{:02X}: ", row * 32);
+        for col in 0..32 { print!("{:02X} ", tile_map[row * 32 + col]); }
+        println!();
+    }
+
+    println!("visible 20x18 tile IDs / attrs (screen origin uses SCX/SCY tile coordinates):");
+    for row in 0..18usize {
+        print!("row {:02}: IDs ", row);
+        for col in 0..20usize {
+            let map_x = (visible_x + col) & 31;
+            let map_y = (visible_y + row) & 31;
+            let index = map_y * 32 + map_x;
+            print!("{:02X} ", tile_map[index]);
+        }
+        print!(" | ATTR ");
+        for col in 0..20usize {
+            let map_x = (visible_x + col) & 31;
+            let map_y = (visible_y + row) & 31;
+            let index = map_y * 32 + map_x;
+            print!("{:02X} ", attributes[index]);
+        }
+        println!();
+    }
+
+    let mut bank1_tiles = 0usize;
+    let mut flip_x = 0usize;
+    let mut flip_y = 0usize;
+    let mut priority = 0usize;
+    for &a in &attributes {
+        bank1_tiles += usize::from(a & 0x08 != 0);
+        flip_x += usize::from(a & 0x20 != 0);
+        flip_y += usize::from(a & 0x40 != 0);
+        priority += usize::from(a & 0x80 != 0);
+    }
+    println!("attribute flags: tile_bank1={} flip_x={} flip_y={} priority={}",
+        bank1_tiles, flip_x, flip_y, priority);
+    println!("================================\n");
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")?;
     let mut game = Game::new(rom);
@@ -122,10 +204,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // F9 captures the actual CGB attribute map at the current gameplay state.
-        // This is the decisive check for whether the map data itself is wrong or
-        // whether the renderer is interpreting valid attributes incorrectly.
         if renderer.window().is_key_pressed(Key::F9, KeyRepeat::No) {
             print_live_bg_attribute_diagnostics(&mut game);
+        }
+
+        // F10 captures the actual bank-0 tile-number map and pairs it with the
+        // bank-1 attributes. This is the primary diagnostic for the wrong map
+        // layout problem; it does not alter renderer behavior.
+        if renderer.window().is_key_pressed(Key::F10, KeyRepeat::No) {
+            print_live_bg_tile_map_diagnostics(&mut game);
         }
 
         renderer.copy_frame(game.framebuffer());
