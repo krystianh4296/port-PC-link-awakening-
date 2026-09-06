@@ -291,6 +291,27 @@ fn background_scroll_scx_selects_shifted_pixels_and_wraps_at_256_pixels() {
 }
 
 #[test]
+fn background_scroll_scx_reads_tile_index_1() {
+    let ppu = Ppu::new();
+    let (mut vram0, _) = blank_vram();
+
+    // Tile map 0x9800:
+    // X=0..7   -> tile 0
+    // X=8..15  -> tile 1
+    vram0[0x1800] = 0;
+    vram0[0x1801] = 1;
+
+    // Bez scrolla pierwszy piksel pochodzi z tile 0.
+    assert_eq!(Ppu::background_tile_index(&vram0, 0, 0, 0x9800), 0);
+
+    // Po SCX = 8 pierwszy piksel ekranu powinien czytać tile 1.
+    assert_eq!(Ppu::background_tile_index(&vram0, 8, 0, 0x9800), 1);
+
+    // Zawijanie 256 px.
+    assert_eq!(Ppu::background_tile_index(&vram0, 255, 0, 0x9800), 0);
+}
+
+#[test]
 fn background_scroll_scy_selects_shifted_tile_rows_and_wraps_at_256_lines() {
     let mut ppu = Ppu::new();
     let (mut vram0, vram1) = blank_vram();
@@ -307,8 +328,41 @@ fn background_scroll_scy_selects_shifted_tile_rows_and_wraps_at_256_lines() {
     let row0_color = Ppu::cgb_rgb555_to_argb(0x56B5);
     assert_eq!(line[0], row0_color);
     assert_eq!(line[159], row0_color);
-}
+}#[test]
+fn background_scroll_scx_reads_color_index_2_from_tile_1() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
 
+    // Tile map: pierwszy tile = 0, drugi tile = 1.
+    vram0[0x1800] = 0;
+    vram0[0x1801] = 1;
+
+    // Tile 0 = kolor 1: low plane = 1, high plane = 0.
+    for row in 0..8 {
+        vram0[row * 2] = 0xFF;
+        vram0[row * 2 + 1] = 0x00;
+    }
+
+    // Tile 1 = kolor 2: low plane = 0, high plane = 1.
+    for row in 0..8 {
+        vram0[16 + row * 2] = 0x00;
+        vram0[16 + row * 2 + 1] = 0xFF;
+    }
+
+    // Sprawdź bezpośrednio, że tile 1 rzeczywiście dekoduje się jako kolor 2.
+    let tile1 = Ppu::background_tile_data(&vram0, 1, 0x8000);
+    assert_eq!(Ppu::decode_tile_row(&tile1, 0), [2; 8]);
+
+    // SCX=8 przesuwa pierwszy widoczny piksel na początek tile 1.
+    ppu.write(0xFF43, 8);
+
+    let line = ppu.render_background_scanline_cgb(&vram0, &vram1, 0);
+
+    let color2 = Ppu::cgb_rgb555_to_argb(0x294A);
+
+    assert_eq!(line[0], color2);
+    assert_eq!(line[7], color2);
+}
 #[test]
 fn background_scroll_wraps_from_bottom_right_edge_to_top_left() {
     let mut ppu = Ppu::new();
