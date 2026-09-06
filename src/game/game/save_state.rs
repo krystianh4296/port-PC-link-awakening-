@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub const SAVE_STATE_PATH: &str = "link_awakening.state";
 const MAGIC: [u8; 8] = *b"LADXST01";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SaveState {
@@ -53,7 +53,7 @@ pub struct CpuState {
     pub ime_pending: bool,
     pub halted: bool,
     pub halt_bug: bool,
-    pub opcode_counts: [u64; 256],
+    pub opcode_counts: Vec<u64>,
 }
 
 impl SaveState {
@@ -65,7 +65,7 @@ impl SaveState {
             cpu: CpuState {
                 a: 0, f: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0,
                 sp: 0, pc: 0, ime: false, ime_pending: false,
-                halted: false, halt_bug: false, opcode_counts: [0; 256],
+                halted: false, halt_bug: false, opcode_counts: vec![0; 256],
             },
             vram: vec![0; 0x4000],
             wram: vec![0; 0x8000],
@@ -114,6 +114,9 @@ impl SaveState {
         }
         if state.version != VERSION {
             return Err(format!("Nieobsługiwana wersja save-state: {}", state.version));
+        }
+        if state.cpu.opcode_counts.len() != 256 {
+            return Err("Save-state ma nieprawidłową liczbę liczników opcode.".to_string());
         }
         if state.vram.len() != 0x4000 || state.wram.len() != 0x8000
             || state.oam.len() != 0x00A0 || state.hram.len() != 0x007F
