@@ -10,27 +10,37 @@ pub struct TileViewer {
     window: Window,
     scale: usize,
     bank: u8,
+    show_attributes: bool,
     buffer: Vec<u32>,
     selected: Option<usize>,
 }
 
 impl TileViewer {
     pub fn new() -> Self {
-        Self::with_scale(2, 0)
+        Self::with_scale(2, 0, false)
     }
 
-    fn dimensions(scale: usize) -> (usize, usize) {
-        (COLS * TILE * scale, ROWS * (TILE + LABEL) * scale)
+    fn dimensions(scale: usize, show_attributes: bool) -> (usize, usize) {
+        if show_attributes {
+            (32 * TILE * scale, 32 * TILE * scale)
+        } else {
+            (COLS * TILE * scale, ROWS * (TILE + LABEL) * scale)
+        }
     }
 
-    fn with_scale(scale: usize, bank: u8) -> Self {
-        let (w, h) = Self::dimensions(scale);
+    fn with_scale(scale: usize, bank: u8, show_attributes: bool) -> Self {
+        let (w, h) = Self::dimensions(scale, show_attributes);
+        let title = if show_attributes {
+            format!("CGB BG Attributes - Bank 1 - 9800 - {}x", scale)
+        } else {
+            format!("VRAM Tile Viewer - Bank {} - 8000-97FF - {}x", bank, scale)
+        };
         let window = Window::new(
-            &format!("VRAM Tile Viewer - Bank {} - {}x", bank, scale),
+            &title,
             w, h,
             WindowOptions { resize: false, ..WindowOptions::default() },
         ).expect("Nie można utworzyć okna Tile Viewer");
-        Self { window, scale, bank, buffer: vec![0; w * h], selected: None }
+        Self { window, scale, bank, show_attributes, buffer: vec![0; w * h], selected: None }
     }
 
     pub fn is_open(&self) -> bool { self.window.is_open() }
@@ -40,15 +50,24 @@ impl TileViewer {
         if !self.window.is_open() { return; }
 
         let previous_bank = game.read(0xFF4F) & 1;
-        game.write(0xFF4F, self.bank);
-        let mut vram = [0u8; 0x1800];
+        let read_bank = if self.show_attributes { 1 } else { self.bank };
+        game.write(0xFF4F, read_bank);
+
+        let mut vram = [0u8; 0x2000];
         for (i, byte) in vram.iter_mut().enumerate() {
             *byte = game.read(0x8000 + i as u16);
         }
+
         game.write(0xFF4F, previous_bank);
 
-        self.render(&vram);
-        let (w, h) = Self::dimensions(self.scale);
+        if self.show_attributes {
+            let map_base = if game.read(0xFF40) & 0x08 != 0 { 0x9C00 } else { 0x9800 };
+            self.render_attributes(&vram, map_base);
+        } else {
+            self.render_tiles(&vram);
+        }
+
+        let (w, h) = Self::dimensions(self.scale, self.show_attributes);
         self.window.update_with_buffer(&self.buffer, w, h)
             .expect("Nie można zaktualizować okna Tile Viewer");
     }
@@ -62,27 +81,50 @@ impl TileViewer {
 
         if self.window.is_key_pressed(Key::B, KeyRepeat::No) {
             self.bank ^= 1;
-            self.window.set_title(&format!("VRAM Tile Viewer - Bank {} - {}x", self.bank, self.scale));
+            if self.show_attributes { self.show_attributes = false; }
+            self.update_title();
+        }
+
+        if self.window.is_key_pressed(Key::A, KeyRepeat::No) {
+            self.show_attributes = !self.show_attributes;
+            if self.show_attributes { self.bank = 1; }
+            self.recreate(self.scale);
         }
 
         if let Some((mx, my)) = self.window.get_mouse_pos(MouseMode::Discard) {
-            let cell_w = TILE * self.scale;
-            let cell_h = (TILE + LABEL) * self.scale;
-            let col = mx as usize / cell_w;
-            let row = my as usize / cell_h;
-            if col < COLS && row < ROWS { self.selected = Some(row * COLS + col); }
+            if self.show_attributes {
+                let cell = TILE * self.scale;
+                let col = mx as usize / cell;
+                let row = my as usize / cell;
+                if col < 32 && row < 32 { self.selected = Some(row * 32 + col); }
+            } else {
+                let cell_w = TILE * self.scale;
+                let cell_h = (TILE + LABEL) * self.scale;
+                let col = mx as usize / cell_w;
+                let row = my as usize / cell_h;
+                if col < COLS && row < ROWS { self.selected = Some(row * COLS + col); }
+            }
         }
     }
 
     fn recreate(&mut self, scale: usize) {
-        if scale == self.scale { return; }
         let selected = self.selected;
         let bank = self.bank;
-        *self = Self::with_scale(scale, bank);
+        let show_attributes = self.show_attributes;
+        *self = Self::with_scale(scale, bank, show_attributes);
         self.selected = selected;
     }
 
-    fn render(&mut self, vram: &[u8; 0x1800]) {
+    fn update_title(&mut self) {
+        let title = if self.show_attributes {
+            format!("CGB BG Attributes - Bank 1 - 9800 - {}x", self.scale)
+        } else {
+            format!("VRAM Tile Viewer - Bank {} - 8000-97FF - {}x", self.bank, self.scale)
+        };
+        self.window.set_title(&title);
+    }
+
+    fn render_tiles(&mut self, vram: &[u8; 0x2000]) {
         self.buffer.fill(0xFF202020);
         let cell_w = TILE * self.scale;
         let cell_h = (TILE + LABEL) * self.scale;
@@ -112,9 +154,52 @@ impl TileViewer {
         }
     }
 
+    fn render_attributes(&mut self, vram: &[u8; 0x2000], map_base: u16) {
+        self.buffer.fill(0xFF202020);
+        let cell = TILE * self.scale;
+        let map_offset = (map_base - 0x8000) as usize;
+
+        for row in 0..32usize {
+            for col in 0..32usize {
+                let index = map_offset + row * 32 + col;
+                let attr = vram[index];
+                let palette = attr & 0x07;
+                let bank = attr & 0x08 != 0;
+                let flip_x = attr & 0x20 != 0;
+                let flip_y = attr & 0x40 != 0;
+                let priority = attr & 0x80 != 0;
+
+                let shade = match palette {
+                    0 => 0xFFFFFFFF,
+                    1 => 0xFFE0E0E0,
+                    2 => 0xFFC0C0C0,
+                    3 => 0xFFA0A0A0,
+                    4 => 0xFF808080,
+                    5 => 0xFF606060,
+                    6 => 0xFF404040,
+                    _ => 0xFF202020,
+                };
+                let ox = col * cell;
+                let oy = row * cell;
+                self.fill_rect(ox, oy, cell, cell, shade);
+
+                if bank { self.stroke_rect(ox + 1, oy + 1, cell.saturating_sub(2), cell.saturating_sub(2), 0xFF00FFFF); }
+                if flip_x { self.stroke_rect(ox + cell / 4, oy + cell / 4, cell / 2, cell / 2, 0xFFFF0000); }
+                if flip_y { self.set_pixel(ox + cell / 2, oy + cell / 2, 0xFF0000FF); }
+                if priority { self.set_pixel(ox + cell.saturating_sub(2), oy + cell.saturating_sub(2), 0xFFFF00FF); }
+            }
+        }
+
+        if let Some(index) = self.selected {
+            let col = index % 32;
+            let row = index / 32;
+            self.stroke_rect(col * cell, row * cell, cell, cell, 0xFFFFFF00);
+        }
+    }
+
     fn fill_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
-        let width = Self::dimensions(self.scale).0;
-        let height = Self::dimensions(self.scale).1;
+        let width = Self::dimensions(self.scale, self.show_attributes).0;
+        let height = Self::dimensions(self.scale, self.show_attributes).1;
         for py in y..(y + h).min(height) {
             let start = py * width + x.min(width);
             let end = (x + w).min(width);
@@ -123,13 +208,14 @@ impl TileViewer {
     }
 
     fn stroke_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
+        if w == 0 || h == 0 { return; }
         for px in x..x + w { self.set_pixel(px, y, color); self.set_pixel(px, y + h - 1, color); }
         for py in y..y + h { self.set_pixel(x, py, color); self.set_pixel(x + w - 1, py, color); }
     }
 
     fn set_pixel(&mut self, x: usize, y: usize, color: u32) {
-        let width = Self::dimensions(self.scale).0;
-        if x < width && y < Self::dimensions(self.scale).1 { self.buffer[y * width + x] = color; }
+        let width = Self::dimensions(self.scale, self.show_attributes).0;
+        if x < width && y < Self::dimensions(self.scale, self.show_attributes).1 { self.buffer[y * width + x] = color; }
     }
 
     fn draw_index(&mut self, value: usize, ox: usize, oy: usize) {
