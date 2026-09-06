@@ -1,3 +1,5 @@
+
+
 #[derive(Debug)]
 pub struct Ppu {
     ly: u8,
@@ -24,7 +26,27 @@ pub struct Ppu {
     stat_irq_line: bool,
     hblank_started: bool,
 }
+#[derive(Clone, Copy, Default)]
+struct BgAttributes {
+    palette: u8,
+    bank: u8,
+    flip_x: bool,
+    flip_y: bool,
+    priority: bool,
+}
 
+impl BgAttributes {
+    #[inline]
+    fn from_byte(value: u8) -> Self {
+        Self {
+            palette: value & 0x07,
+            bank: (value >> 3) & 0x01,
+            flip_x: value & 0x20 != 0,
+            flip_y: value & 0x40 != 0,
+            priority: value & 0x80 != 0,
+        }
+    }
+}
 impl Ppu {
     pub fn new() -> Self {
         let mut bg_palette_ram = [0u8; 64];
@@ -156,7 +178,9 @@ impl Ppu {
         }
     }
 
-    pub fn take_vblank_interrupt(&mut self) -> bool { let x = self.vblank_interrupt; self.vblank_interrupt = false; x }
+    pub fn take_vblank_interrupt(&mut self) -> bool {
+         let x = self.vblank_interrupt; self.vblank_interrupt = false; x 
+    }
     pub fn take_stat_interrupt(&mut self) -> bool { let x = self.stat_interrupt; self.stat_interrupt = false; x }
     pub fn take_hblank_started(&mut self) -> bool { let x = self.hblank_started; self.hblank_started = false; x }
     pub fn framebuffer(&self) -> &[u32; 160 * 144] { &self.framebuffer }
@@ -164,6 +188,14 @@ impl Ppu {
     pub fn take_frame_ready(&mut self) -> bool { let x = self.frame_ready; self.frame_ready = false; x }
     #[cfg(test)] pub fn ly(&self) -> u8 { self.ly }
     #[cfg(test)] pub fn mode(&self) -> u8 { self.mode }
+
+    fn bg_map_base(&self) -> u16 {
+        if self.lcdc & 0x08 != 0 {
+            0x9C00
+        } else {
+            0x9800
+        }
+    }
 
     pub fn background_tile_index(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
         let map_offset = (map_base - 0x8000) as usize;
@@ -218,11 +250,25 @@ impl Ppu {
         for x in 0..160usize {
             let use_window = self.window_is_visible_on_line(y) && x as i16 >= self.wx as i16 - 7;
             let (map, bg_x, bg_y) = if use_window {
-                (if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 }, (x as i16 - (self.wx as i16 - 7)) as usize, window_line as usize)
+                (match self.lcdc & 0x40 != 0 {
+                    true => 0x9C00,
+                    false => 0x9800,
+                }, (x as i16 - (self.wx as i16 - 7)) as usize, window_line as usize)
             } else {
-                (if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 }, (x + self.scx as usize) & 0xFF, (y as usize + self.scy as usize) & 0xFF)
+                (match self.lcdc & 8 != 0 {
+                    true => 0x9C00,
+                    false => 0x9800,
+                }, (x + self.scx as usize) & 0xFF, (y as usize + self.scy as usize) & 0xFF)
             };
-            let tile_x = bg_x >> 3; let tile_y = bg_y >> 3;
+            let tile_x = bg_x >> 3; 
+            let tile_y = bg_y >> 3;
+            #[cfg(test)]
+            if self.scy == 255 && (y == 0 || y == 1) && x == 0 {
+                eprintln!(
+                    "SCY TEST: y={}, scy={}, bg_y={}, tile_y={}, map={:#06X}",
+                    y, self.scy, bg_y, bg_y >> 3, map
+                );
+            }
             let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
             let tile_index = vram0[map_index];
             let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map);
