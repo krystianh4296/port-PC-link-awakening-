@@ -42,6 +42,8 @@ pub struct GameMemory {
     graphics_write_trace_count: u16,
     vram_first_writes_logged: u8,
     last_vram_write: Option<(u16, u8, u8)>,
+    ppu_runtime_debug: bool,
+    ppu_debug_frame: u64,
 }
 
 impl GameMemory {
@@ -81,6 +83,8 @@ impl GameMemory {
             graphics_write_trace_count: 0,
             vram_first_writes_logged: 0,
             last_vram_write: None,
+            ppu_runtime_debug: std::env::var_os("PPU_RUNTIME_DEBUG").is_some(),
+            ppu_debug_frame: 0,
         }
     }
 
@@ -221,7 +225,15 @@ impl GameMemory {
         if self.timer.take_interrupt() { self.interrupt.request(2); }
         self.ppu.step(cycles, &self.oam, &self.vram[0], &self.vram[1]);
         if self.hdma_hblank_active && self.ppu.take_hblank_started() { self.transfer_hdma_block(); }
-        if self.ppu.take_vblank_interrupt() { self.interrupt.request(0); }
+        if self.ppu.take_vblank_interrupt() {
+            if self.ppu_runtime_debug {
+                if self.ppu_debug_frame % 30 == 0 {
+                    self.print_ppu_runtime_debug(self.ppu_debug_frame);
+                }
+                self.ppu_debug_frame = self.ppu_debug_frame.wrapping_add(1);
+            }
+            self.interrupt.request(0);
+        }
         if self.ppu.take_stat_interrupt() { self.interrupt.request(1); }
         self.serial.step(cycles);
         if self.serial.take_interrupt() { self.interrupt.request(3); }
@@ -229,6 +241,66 @@ impl GameMemory {
         let stall_cycles = self.hdma_cpu_stall_cycles;
         self.hdma_cpu_stall_cycles = 0;
         stall_cycles
+    }
+
+    fn print_ppu_runtime_debug(&self, frame: u64) {
+        let lcdc = self.ppu.read(0xFF40);
+        let scx = self.ppu.read(0xFF43);
+        let scy = self.ppu.read(0xFF42);
+        let wx = self.ppu.read(0xFF4B);
+        let wy = self.ppu.read(0xFF4A);
+        let ly = self.ppu.read(0xFF44);
+        let bg_map = if lcdc & 0x08 != 0 { 0x9C00u16 } else { 0x9800u16 };
+        let tile_base = if lcdc & 0x10 != 0 { 0x8000u16 } else { 0x9000u16 };
+        let bg_enabled = lcdc & 0x01 != 0;
+        let window_enabled = lcdc & 0x20 != 0;
+
+        println!("=== PPU RUNTIME DEBUG frame={} ===", frame);
+        println!(
+            "LCDC={:02X} LY={} SCX={} SCY={} WX={} WY={} BG={} TILE_BASE={:04X} BG_EN={} WIN_EN={}",
+            lcdc, ly, scx, scy, wx, wy, bg_map, tile_base, bg_enabled, window_enabled
+        );
+
+        for &(x, y) in &[(0usize, 0usize), (80, 72), (159, 143)] {
+            let bg_x = (x + scx as usize) & 0xFF;
+            let bg_y = (y + scy as usize) & 0xFF;
+            let tile_x = bg_x >> 3;
+            let tile_y = bg_y >> 3;
+            let map_index = (bg_map - 0x8000) as usize + tile_y * 32 + tile_x;
+            let tile_index = self.vram[0][map_index];
+            let attr = self.vram[1][map_index];
+            let palette = attr & 0x07;
+            let bank = (attr >> 3) & 1;
+            let flip_x = attr & 0x20 != 0;
+            let flip_y = attr & 0x40 != 0;
+            let priority = attr & 0x80 != 0;
+            let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
+            let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
+            let tile_vram = &self.vram[bank as usize];
+            let tile_address = if tile_base == 0x8000 {
+                0x8000usize + tile_index as usize * 16
+            } else {
+                (0x9000isize + (tile_index as i8 as isize) * 16) as usize
+            };
+            let tile_offset = tile_address - 0x8000;
+            let lo = tile_vram[tile_offset + row * 2];
+            let hi = tile_vram[tile_offset + row * 2 + 1];
+            let color_id = ((hi >> (7 - px)) & 1) << 1 | ((lo >> (7 - px)) & 1);
+            let fb = self.ppu.framebuffer()[y * 160 + x];
+
+            println!(
+                "PIXEL ({:03},{:03}) src=({:03},{:03}) map={:04X} idx={:04X} tile={:02X} attr={:02X} bank={} pal={} fx={} fy={} prio={} tile_addr={:04X} row={} px={} ci={} fb={:08X}",
+                x, y, bg_x, bg_y, bg_map, map_index, tile_index, attr, bank, palette,
+                flip_x, flip_y, priority, tile_address, row, px, color_id, fb
+            );
+        }
+
+        println!(
+            "VRAM writes={} nonzero={} bg_map_writes={} last_vram={:?} vram_bank={} ppu_reg_writes={}",
+            self.vram_write_count, self.vram_nonzero_write_count, self.bg_map_write_count,
+            self.last_vram_write, self.vram_bank, self.ppu_register_write_count
+        );
+        println!("=== END PPU RUNTIME DEBUG ===");
     }
 
     pub fn background_tile_attributes(vram_bank_1: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
