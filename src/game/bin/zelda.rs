@@ -4,6 +4,7 @@ use gameboy_port::input::Input;
 use gameboy_port::rendering::renderer::Renderer;
 use gameboy_port::rendering::tile_viewer::TileViewer;
 use gameboy_port::rom::Rom;
+use minifb::{Key, KeyRepeat};
 
 use std::time::{Duration, Instant};
 
@@ -39,6 +40,58 @@ fn print_first_frame_diagnostics(game: &Game) {
     println!("=========================================\n");
 }
 
+/// Dumps the live CGB BG attribute map from VRAM bank 1.
+/// This is intentionally read from bank 1 directly through the normal FF4F
+/// banking interface, so it verifies the bytes actually present during gameplay
+/// rather than a copied/derived map.
+fn print_live_bg_attribute_diagnostics(game: &mut Game) {
+    let previous_bank = game.read(0xFF4F) & 1;
+    let lcdc = game.read(0xFF40);
+    let scx = game.read(0xFF43);
+    let scy = game.read(0xFF42);
+    let map_base = if lcdc & 0x08 != 0 { 0x9C00u16 } else { 0x9800u16 };
+
+    game.write(0xFF4F, 1);
+
+    let mut attributes = [0u8; 32 * 32];
+    for i in 0..attributes.len() {
+        attributes[i] = game.read(map_base + i as u16);
+    }
+
+    game.write(0xFF4F, previous_bank);
+
+    let nonzero = attributes.iter().filter(|&&a| a != 0).count();
+    let mut palette_counts = [0usize; 8];
+    let mut bank1_count = 0usize;
+    let mut flip_x_count = 0usize;
+    let mut flip_y_count = 0usize;
+    let mut priority_count = 0usize;
+    for &a in &attributes {
+        palette_counts[(a & 0x07) as usize] += 1;
+        bank1_count += usize::from(a & 0x08 != 0);
+        flip_x_count += usize::from(a & 0x20 != 0);
+        flip_y_count += usize::from(a & 0x40 != 0);
+        priority_count += usize::from(a & 0x80 != 0);
+    }
+
+    let screen_tile_x = ((scx as usize) >> 3) & 31;
+    let screen_tile_y = ((scy as usize) >> 3) & 31;
+    let screen_attr = attributes[screen_tile_y * 32 + screen_tile_x];
+
+    println!("\n=== LIVE CGB BG ATTRIBUTES ===");
+    println!("map={:04X} VRAM bank=1 SCX={:02X} SCY={:02X}", map_base, scx, scy);
+    println!("nonzero={}/1024 palette={:?} bank1={} flip_x={} flip_y={} priority={}",
+        nonzero, palette_counts, bank1_count, flip_x_count, flip_y_count, priority_count);
+    println!("top-left screen tile ({},{}) attr={:02X}", screen_tile_x, screen_tile_y, screen_attr);
+    println!("attribute map:");
+    for row in 0..32 {
+        print!("{:02X}: ", row * 32);
+        for col in 0..32 { print!("{:02X} ", attributes[row * 32 + col]); }
+        println!();
+    }
+    println!("==============================\n");
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")?;
     let mut game = Game::new(rom);
@@ -66,6 +119,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_first_frame_diagnostics(&game);
             game.print_vram_diagnostics();
             diagnostics_printed = true;
+        }
+
+        // F9 captures the actual CGB attribute map at the current gameplay state.
+        // This is the decisive check for whether the map data itself is wrong or
+        // whether the renderer is interpreting valid attributes incorrectly.
+        if renderer.window().is_key_pressed(Key::F9, KeyRepeat::No) {
+            print_live_bg_attribute_diagnostics(&mut game);
         }
 
         renderer.copy_frame(game.framebuffer());
