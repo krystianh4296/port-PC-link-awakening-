@@ -37,6 +37,10 @@ impl Cartridge {
         &self.rom
     }
 
+    pub fn ram(&self) -> &[u8] {
+        &self.ram
+    }
+
     pub fn rom_bank(&self) -> u16 {
         self.rom_bank.bank()
     }
