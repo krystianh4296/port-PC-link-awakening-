@@ -155,9 +155,17 @@ impl GameMemory {
     pub fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x7FFF | 0xA000..=0xBFFF => self.cartridge.read(address),
-            0x8000..=0x9FFF => { let bank = (self.vram_bank & 0x01) as usize; self.vram[bank][(address - 0x8000) as usize] }
+            0x8000..=0x9FFF => {
+                if !self.ppu.cpu_can_access_vram() { 0xFF }
+                else {
+                    let bank = (self.vram_bank & 0x01) as usize;
+                    self.vram[bank][(address - 0x8000) as usize]
+                }
+            }
             0xC000..=0xDFFF | 0xE000..=0xFDFF => self.wram[self.wram_index(address)],
-            0xFE00..=0xFE9F => self.oam[(address - 0xFE00) as usize],
+            0xFE00..=0xFE9F => {
+                if self.ppu.cpu_can_access_oam() { self.oam[(address - 0xFE00) as usize] } else { 0xFF }
+            }
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00 => self.joypad.read(),
             0xFF01..=0xFF02 => self.serial.read(address),
@@ -180,6 +188,7 @@ impl GameMemory {
         match address {
             0x0000..=0x7FFF | 0xA000..=0xBFFF => self.cartridge.write(address, value),
             0x8000..=0x9FFF => {
+                if !self.ppu.cpu_can_access_vram() { return; }
                 let bank = (self.vram_bank & 0x01) as usize;
                 self.vram[bank][(address - 0x8000) as usize] = value;
                 self.vram_write_count += 1;
@@ -191,6 +200,7 @@ impl GameMemory {
             }
             0xC000..=0xDFFF | 0xE000..=0xFDFF => { let index = self.wram_index(address); self.wram[index] = value; }
             0xFE00..=0xFE9F => {
+                if !self.ppu.cpu_can_access_oam() { return; }
                 self.oam[(address - 0xFE00) as usize] = value;
                 self.oam_write_count += 1;
                 self.graphics_write_trace_count = self.graphics_write_trace_count.saturating_add(1);
@@ -327,5 +337,43 @@ impl GameMemory {
         println!("VRAM BANK SELECT WRITES (FF4F): {}", self.vram_bank_write_count);
         match self.last_vram_write { Some((address, value, bank)) => println!("LAST VRAM WRITE: addr={:04X} value={:02X} bank={}", address, value, bank), None => println!("LAST VRAM WRITE: none") }
         println!("========================");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rom::{Cartridge, Rom};
+
+    fn memory() -> GameMemory {
+        GameMemory::new(Cartridge::new(
+            Rom::load(
+                "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
+            )
+            .expect("reference ROM must be available for hardware tests"),
+        ))
+    }
+
+    #[test]
+    fn cpu_bus_blocks_vram_and_oam_during_lcd_transfer() {
+        let mut memory = memory();
+
+        // The LCD begins in Mode 2: VRAM is available, OAM is not.
+        memory.write(0x8000, 0x12);
+        memory.write(0xFE00, 0x34);
+        assert_eq!(memory.read(0x8000), 0x12);
+        assert_eq!(memory.read(0xFE00), 0xFF);
+
+        // After Mode 2, Mode 3 blocks both regions from the CPU bus.
+        memory.step(80);
+        assert_eq!(memory.read(0x8000), 0xFF);
+        assert_eq!(memory.read(0xFE00), 0xFF);
+        memory.write(0x8000, 0x99);
+
+        // HBlank exposes them again and confirms the Mode-3 write was lost.
+        memory.step(172);
+        assert_eq!(memory.read(0x8000), 0x12);
+        memory.write(0xFE00, 0x34);
+        assert_eq!(memory.read(0xFE00), 0x34);
     }
 }

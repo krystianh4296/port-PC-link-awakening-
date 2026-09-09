@@ -38,8 +38,9 @@ fn background_scroll_scy_wraps_from_line_255_to_line_0() {
     // tile_y = 255 / 8 = 31
     //
     // Therefore screen line 0 with SCY=255 must use tile 0.
-    let row_31_index = map_offset + 31 * 32;
-    vram0[row_31_index] = 0;
+    for tile_x in 0..32 {
+        vram0[map_offset + 31 * 32 + tile_x] = 0;
+    }
 
     // Background map row 0 -> tile 1.
     //
@@ -47,8 +48,9 @@ fn background_scroll_scy_wraps_from_line_255_to_line_0() {
     // tile_y = 0
     //
     // Therefore screen line 1 with SCY=255 must use tile 1.
-    let row_0_index = map_offset;
-    vram0[row_0_index] = 1;
+    for tile_x in 0..32 {
+        vram0[map_offset + tile_x] = 1;
+    }
 
     // ------------------------------------------------------------
     // SCY = 255

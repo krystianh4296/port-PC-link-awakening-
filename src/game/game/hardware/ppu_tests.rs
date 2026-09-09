@@ -478,3 +478,54 @@ fn cgb_background_priority_tile_is_drawn_over_a_sprite() {
 
     assert_eq!(ppu.framebuffer()[0], Ppu::cgb_rgb555_to_argb(0x56B5));
 }
+
+#[test]
+fn cpu_vram_and_oam_permissions_follow_lcd_modes() {
+    let mut ppu = Ppu::new();
+    let (vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    // The PPU starts in Mode 2: VRAM is available but OAM is not.
+    assert!(ppu.cpu_can_access_vram());
+    assert!(!ppu.cpu_can_access_oam());
+
+    ppu.step(80, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 3);
+    assert!(!ppu.cpu_can_access_vram());
+    assert!(!ppu.cpu_can_access_oam());
+
+    ppu.step(172, &oam, &vram0, &vram1);
+    assert_eq!(ppu.mode(), 0);
+    assert!(ppu.cpu_can_access_vram());
+    assert!(ppu.cpu_can_access_oam());
+}
+
+#[test]
+fn scx_write_during_mode_3_changes_a_tile_not_yet_fetched() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+    let oam = [0; 0xA0];
+
+    // Tile 1 is colour 1 and tile 3 is colour 3. The third fetch happens
+    // after the write below, so it observes the new SCX value.
+    for row in 0..8 {
+        vram0[16 + row * 2] = 0xFF;
+        vram0[16 + row * 2 + 1] = 0x00;
+        vram0[48 + row * 2] = 0xFF;
+        vram0[48 + row * 2 + 1] = 0xFF;
+    }
+    vram0[0x1800] = 1;
+    vram0[0x1801] = 1;
+    vram0[0x1802] = 2;
+    vram0[0x1803] = 3;
+    // The third tile fetch is already in flight when SCX changes.  The next
+    // tile-map lookup therefore uses SCX=8 and lands on column 4.
+    vram0[0x1804] = 3;
+
+    ppu.step(98, &oam, &vram0, &vram1); // Mode 2 plus 18 dots of Mode 3.
+    ppu.write(0xFF43, 8);
+    ppu.step(154, &oam, &vram0, &vram1);
+
+    assert_eq!(ppu.framebuffer()[0], Ppu::cgb_rgb555_to_argb(0x56B5));
+    assert_eq!(ppu.framebuffer()[24], Ppu::cgb_rgb555_to_argb(0x0000));
+}

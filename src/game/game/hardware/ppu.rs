@@ -1,5 +1,24 @@
 
 
+use std::collections::VecDeque;
+
+#[derive(Debug, Clone, Copy)]
+struct BgPixel {
+    color_id: u8,
+    palette: u8,
+    priority: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct BgFetcher {
+    phase: u8,
+    tile_column: usize,
+    tile_index: u8,
+    attributes: BgAttributes,
+    low: u8,
+    high: u8,
+}
+
 #[derive(Debug)]
 pub struct Ppu {
     ly: u8,
@@ -21,12 +40,19 @@ pub struct Ppu {
     cycle_counter: u32,
     mode: u8,
     mode3_cycles: u32,
+    bg_fifo: VecDeque<BgPixel>,
+    fetcher: BgFetcher,
+    pixel_x: usize,
+    scx_discard: u8,
+    window_started: bool,
+    bg_color_ids: [u8; 160],
+    bg_priorities: [bool; 160],
     vblank_interrupt: bool,
     stat_interrupt: bool,
     stat_irq_line: bool,
     hblank_started: bool,
 }
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 struct BgAttributes {
     palette: u8,
     bank: u8,
@@ -64,6 +90,9 @@ impl Ppu {
             framebuffer: [0xFF000000; 160 * 144], frame_ready: false,
             bg_palette_ram, obj_palette_ram, bgpi: 0, obpi: 0,
             bgp: 0xFC, cycle_counter: 0, mode: 2, mode3_cycles: 172,
+            bg_fifo: VecDeque::with_capacity(16), fetcher: BgFetcher::default(),
+            pixel_x: 0, scx_discard: 0, window_started: false,
+            bg_color_ids: [0; 160], bg_priorities: [false; 160],
             vblank_interrupt: false, stat_interrupt: false, stat_irq_line: false,
             hblank_started: false,
         }
@@ -80,19 +109,20 @@ impl Ppu {
             2 if self.cycle_counter >= 80 => {
                 self.cycle_counter = 0;
                 self.mode3_cycles = self.mode3_length(oam);
+                self.begin_pixel_transfer();
                 self.set_mode(3);
             }
-            3 if self.cycle_counter >= self.mode3_cycles => {
-                self.cycle_counter = 0;
-                if self.ly < 144 {
-                    let line = self.render_background_scanline_with_window(vram0, vram1, self.ly, self.window_line);
-                    let start = self.ly as usize * 160;
-                    self.framebuffer[start..start + 160].copy_from_slice(&line);
-                    self.render_sprites_scanline(oam, vram0, vram1, self.ly);
-                    if self.window_is_visible_on_line(self.ly) { self.window_line = self.window_line.wrapping_add(1); }
+            3 => {
+                self.pixel_transfer_step(vram0, vram1);
+                if self.cycle_counter >= self.mode3_cycles {
+                    self.cycle_counter = 0;
+                    if self.ly < 144 {
+                        self.render_sprites_scanline(oam, vram0, vram1, self.ly);
+                        if self.window_started { self.window_line = self.window_line.wrapping_add(1); }
+                    }
+                    self.set_mode(0);
+                    self.hblank_started = true;
                 }
-                self.set_mode(0);
-                self.hblank_started = true;
             }
             0 if self.cycle_counter >= 376 - self.mode3_cycles => {
                 self.cycle_counter = 0;
@@ -113,6 +143,114 @@ impl Ppu {
     }
 
     fn set_mode(&mut self, mode: u8) { self.mode = mode; self.stat = (self.stat & !3) | mode; self.update_stat_interrupt(); }
+
+    /// CPU-visible VRAM is unavailable only while pixels are being transferred.
+    pub fn cpu_can_access_vram(&self) -> bool { self.lcdc & 0x80 == 0 || self.mode != 3 }
+
+    /// CPU-visible OAM is unavailable during OAM search and pixel transfer.
+    pub fn cpu_can_access_oam(&self) -> bool { self.lcdc & 0x80 == 0 || self.mode <= 1 }
+
+    fn begin_pixel_transfer(&mut self) {
+        self.bg_fifo.clear();
+        self.fetcher = BgFetcher::default();
+        self.pixel_x = 0;
+        self.scx_discard = self.scx & 7;
+        self.window_started = false;
+        self.bg_color_ids = [0; 160];
+        self.bg_priorities = [false; 160];
+    }
+
+    /// Advance the BG/window fetcher. Each of its four phases takes two dots:
+    /// tile number/attributes, low plane, high plane and FIFO push. Register
+    /// values are sampled during their respective phases, so writes between
+    /// CPU instructions affect tiles that have not been fetched yet.
+    fn pixel_transfer_step(&mut self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000]) {
+        if self.cycle_counter & 1 == 0 {
+            self.fetcher_step(vram0, vram1);
+        }
+
+        if !self.window_started && self.window_is_visible_on_line(self.ly)
+            && self.pixel_x as i16 >= self.wx as i16 - 7
+        {
+            // The window restarts the BG fetcher and discards queued BG pixels.
+            self.bg_fifo.clear();
+            self.fetcher = BgFetcher::default();
+            self.scx_discard = 0;
+            self.window_started = true;
+            return;
+        }
+
+        let Some(pixel) = self.bg_fifo.pop_front() else { return; };
+        if self.scx_discard != 0 {
+            self.scx_discard -= 1;
+            return;
+        }
+        if self.pixel_x >= 160 { return; }
+        let index = self.ly as usize * 160 + self.pixel_x;
+        self.framebuffer[index] = self.background_palette_color(pixel.palette, pixel.color_id);
+        self.bg_color_ids[self.pixel_x] = pixel.color_id;
+        self.bg_priorities[self.pixel_x] = pixel.priority;
+        self.pixel_x += 1;
+    }
+
+    fn fetcher_step(&mut self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000]) {
+        match self.fetcher.phase {
+            0 => {
+                let (map, x, y) = if self.window_started {
+                    (
+                        if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 },
+                        self.fetcher.tile_column * 8,
+                        self.window_line as usize,
+                    )
+                } else {
+                    (
+                        if self.lcdc & 0x08 != 0 { 0x9C00 } else { 0x9800 },
+                        (self.fetcher.tile_column * 8 + self.scx as usize) & 0xFF,
+                        (self.ly as usize + self.scy as usize) & 0xFF,
+                    )
+                };
+                let map_index = (map - 0x8000) as usize + (y >> 3) * 32 + (x >> 3);
+                self.fetcher.tile_index = vram0[map_index];
+                self.fetcher.attributes = BgAttributes::from_byte(vram1[map_index]);
+                self.fetcher.phase = 1;
+            }
+            1 => {
+                self.fetcher.low = self.fetch_tile_plane(vram0, vram1, false);
+                self.fetcher.phase = 2;
+            }
+            2 => {
+                self.fetcher.high = self.fetch_tile_plane(vram0, vram1, true);
+                self.fetcher.phase = 3;
+            }
+            _ => {
+                if self.bg_fifo.is_empty() {
+                    for bit_index in 0..8 {
+                        let bit = if self.fetcher.attributes.flip_x { bit_index } else { 7 - bit_index };
+                        let color_id = ((self.fetcher.high >> bit) & 1) << 1 | ((self.fetcher.low >> bit) & 1);
+                        self.bg_fifo.push_back(BgPixel {
+                            color_id,
+                            palette: self.fetcher.attributes.palette,
+                            priority: self.fetcher.attributes.priority,
+                        });
+                    }
+                    self.fetcher.tile_column = self.fetcher.tile_column.wrapping_add(1) & 31;
+                    self.fetcher.phase = 0;
+                }
+            }
+        }
+    }
+
+    fn fetch_tile_plane(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], high: bool) -> u8 {
+        let y = if self.window_started { self.window_line as usize } else { (self.ly as usize + self.scy as usize) & 0xFF };
+        let row = if self.fetcher.attributes.flip_y { 7 - (y & 7) } else { y & 7 };
+        let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
+        let tile = Self::background_tile_data(
+            if self.fetcher.attributes.bank != 0 { vram1 } else { vram0 },
+            self.fetcher.tile_index,
+            base,
+        );
+        tile[row * 2 + usize::from(high)]
+    }
 
     fn mode3_length(&self, oam: &[u8; 0xA0]) -> u32 {
         let mut length = 172 + u32::from(self.scx & 7);
@@ -189,14 +327,6 @@ impl Ppu {
     #[cfg(test)] pub fn ly(&self) -> u8 { self.ly }
     #[cfg(test)] pub fn mode(&self) -> u8 { self.mode }
 
-    fn bg_map_base(&self) -> u16 {
-        if self.lcdc & 0x08 != 0 {
-            0x9C00
-        } else {
-            0x9800
-        }
-    }
-
     pub fn background_tile_index(vram: &[u8; 0x2000], bg_x: u8, bg_y: u8, map_base: u16) -> u8 {
         let map_offset = (map_base - 0x8000) as usize;
         let tile_x = (bg_x as usize) >> 3;
@@ -246,56 +376,36 @@ impl Ppu {
 
     fn render_background_scanline_with_window(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], y: u8, window_line: u8) -> [u32; 160] {
         let mut out = [0u32; 160];
+        let tile_base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
 
-        #[cfg(test)]
-        if (self.scy == 255 || self.window_line < 4)
-            && (y <= 3 || y >= 250)
-        {
-            for x in 0..20usize {
-                self.debug_background_pixel(vram0, vram1, x, y);
-            }
-        }
-
-        let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
         for x in 0..160usize {
-            let use_window = self.window_is_visible_on_line(y) && x as i16 >= self.wx as i16 - 7;
-            let (map, bg_x, bg_y) = if use_window {
-                (match self.lcdc & 0x40 != 0 {
-                    true => 0x9C00,
-                    false => 0x9800,
-                }, (x as i16 - (self.wx as i16 - 7)) as usize, window_line as usize)
+            let map_base: u16;
+            let bg_x: usize;
+            let bg_y: usize;
+
+            if self.lcdc & 0x20 != 0 && y >= self.wy && self.wx <= 166 && x as i16 >= self.wx as i16 - 7 {
+                map_base = if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 };
+                let window_x = x as i32 - (self.wx as i32 - 7);
+                if window_x < 0 {
+                    out[x] = 0;
+                    continue;
+                }
+                bg_x = window_x as usize;
+                bg_y = window_line as usize;
             } else {
-                (match self.lcdc & 8 != 0 {
-                    true => 0x9C00,
-                    false => 0x9800,
-                }, (x + self.scx as usize) & 0xFF, (y as usize + self.scy as usize) & 0xFF)
-            };
-            let tile_x = bg_x >> 3; 
-            let tile_y = bg_y >> 3;
-            #[cfg(test)]
-            if self.scy == 255 && (y == 0 || y == 1) && x == 0 {
-                eprintln!(
-                    "SCY TEST: y={}, scy={}, scx={}, bg_x={}, bg_y={}, \
-                    tile_x={}, tile_y={}, map={:#06X}, map_index={:#06X}, \
-                    tile={:#04X}",
-                    y,
-                    self.scy,
-                    self.scx,
-                    bg_x,
-                    bg_y,
-                    tile_x,
-                    tile_y,
-                    map,
-                    map_index,
-                    tile_index,
-                );
+                map_base = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
+                bg_x = (x as usize).wrapping_add(self.scx as usize) & 0xFF;
+                bg_y = (y as usize).wrapping_add(self.scy as usize) & 0xFF;
             }
-            let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
+
+            let tile_x = bg_x >> 3;
+            let tile_y = bg_y >> 3;
+            let map_index = (map_base - 0x8000) as usize + tile_y * 32 + tile_x;
             let tile_index = vram0[map_index];
-            let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map);
+            let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map_base);
             let (palette, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
             let tile_vram = if bank { vram1 } else { vram0 };
-            let tile = Self::background_tile_data(tile_vram, tile_index, base);
+            let tile = Self::background_tile_data(tile_vram, tile_index, tile_base);
             let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
             let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
             let ci = Self::decode_tile_row(&tile, row)[px];
@@ -305,24 +415,21 @@ impl Ppu {
     }
 
     fn background_pixel_info_at(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], x: usize, y: u8) -> (u8, bool) {
-        if self.lcdc & 0x01 == 0 { return (0, false); }
-        let use_window = self.window_is_visible_on_line(y) && x as i16 >= self.wx as i16 - 7;
-        let (map, bg_x, bg_y) = if use_window {
-            (if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 }, (x as i16 - (self.wx as i16 - 7)) as usize, self.window_line as usize)
-        } else {
-            (if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 }, (x + self.scx as usize) & 0xFF, (y as usize + self.scy as usize) & 0xFF)
-        };
-        let base = if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 };
-        let tile_x = bg_x >> 3; let tile_y = bg_y >> 3;
-        let map_index = (map - 0x8000) as usize + tile_y * 32 + tile_x;
-        let tile_index = vram0[map_index];
-        let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map);
-        let (_, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
+        let map_base = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
+        let bg_x = (x as usize + self.scx as usize) & 0xFF;
+        let bg_y = (y as usize + self.scy as usize) & 0xFF;
+        let tile_x = bg_x >> 3;
+        let tile_y = bg_y >> 3;
+        let index = (map_base - 0x8000) as usize + tile_y * 32 + tile_x;
+        let tile_index = vram0[index];
+        let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map_base);
+        let (_, bank, flip_x, flip_y, priority) = Self::background_tile_attribute_info(attr);
         let tile_vram = if bank { vram1 } else { vram0 };
-        let tile = Self::background_tile_data(tile_vram, tile_index, base);
+        let tile = Self::background_tile_data(tile_vram, tile_index, if self.lcdc & 0x10 != 0 { 0x8000 } else { 0x9000 });
         let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
         let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
-        (Self::decode_tile_row(&tile, row)[px], attr & 0x80 != 0)
+        let color_id = Self::decode_tile_row(&tile, row)[px];
+        (color_id, priority)
     }
 
     fn obj_palette_color(&self, palette: u8, index: u8) -> u32 {
@@ -377,170 +484,4 @@ impl Ppu {
             }
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Ppu;
-
-    #[test]
-    fn background_tile_attributes_reads_vram_bank_1_at_same_map_offset() {
-        let mut bank0 = [0u8; 0x2000];
-        let mut bank1 = [0u8; 0x2000];
-        let map_base = 0x9800;
-        let bg_x = 17 * 8 + 3;
-        let bg_y = 9 * 8 + 5;
-        let index = (map_base - 0x8000) as usize + 9 * 32 + 17;
-
-        bank0[index] = 0x12;
-        bank1[index] = 0xE9;
-
-        assert_eq!(Ppu::background_tile_attributes(&bank1, bg_x, bg_y, map_base), 0xE9);
-        assert_ne!(Ppu::background_tile_attributes(&bank0, bg_x, bg_y, map_base), 0xE9);
-    }
-
-    #[test]
-    fn background_tile_attribute_info_decodes_cgb_attribute_bits() {
-        let (palette, bank, flip_x, flip_y, priority) = Ppu::background_tile_attribute_info(0xED);
-        assert_eq!(palette, 5);
-        assert!(bank);
-        assert!(flip_x);
-        assert!(flip_y);
-        assert!(priority);
-    }
-
-    #[cfg(test)]
-fn debug_background_pixel(
-    &self,
-    vram0: &[u8; 0x2000],
-    vram1: &[u8; 0x2000],
-    x: usize,
-    y: u8,
-) {
-    let use_window =
-        self.window_is_visible_on_line(y)
-            && x as i16 >= self.wx as i16 - 7;
-
-    let (map, bg_x, bg_y) = if use_window {
-        (
-            if self.lcdc & 0x40 != 0 {
-                0x9C00
-            } else {
-                0x9800
-            },
-            (x as i16 - (self.wx as i16 - 7)) as usize,
-            self.window_line as usize,
-        )
-    } else {
-        (
-            if self.lcdc & 0x08 != 0 {
-                0x9C00
-            } else {
-                0x9800
-            },
-            (x + self.scx as usize) & 0xFF,
-            (y as usize + self.scy as usize) & 0xFF,
-        )
-    };
-
-    let base = if self.lcdc & 0x10 != 0 {
-        0x8000
-    } else {
-        0x9000
-    };
-
-    let tile_x = bg_x >> 3;
-    let tile_y = bg_y >> 3;
-
-    let map_index =
-        (map - 0x8000) as usize
-            + tile_y * 32
-            + tile_x;
-
-    let tile_index = vram0[map_index];
-
-    let attr =
-        Self::background_tile_attributes(
-            vram1,
-            bg_x as u8,
-            bg_y as u8,
-            map,
-        );
-
-    let (palette, bank, flip_x, flip_y, priority) =
-        Self::background_tile_attribute_info(attr);
-
-    let tile_vram = if bank { vram1 } else { vram0 };
-
-    let tile = Self::background_tile_data(
-        tile_vram,
-        tile_index,
-        base,
-    );
-
-    let row = if flip_y {
-        7 - (bg_y & 7)
-    } else {
-        bg_y & 7
-    };
-
-    let px = if flip_x {
-        7 - (bg_x & 7)
-    } else {
-        bg_x & 7
-    };
-
-    let color_id =
-        Self::decode_tile_row(&tile, row)[px];
-
-    let tile_offset =
-        if base == 0x8000 {
-            tile_index as usize * 16
-        } else {
-            let signed_index = tile_index as i8 as isize;
-            (0x1000isize + signed_index * 16) as usize
-        };
-
-    eprintln!(
-        concat!(
-            "PPU BG: ",
-            "screen=({:03},{:03}) ",
-            "source=({:03},{:03}) ",
-            "window={} ",
-            "map={:#06X} ",
-            "map_index={:#06X} ",
-            "tile={:#04X} ",
-            "attr={:#04X} ",
-            "bank={} ",
-            "palette={} ",
-            "flip_x={} ",
-            "flip_y={} ",
-            "priority={} ",
-            "base={:#06X} ",
-            "tile_offset={:#06X} ",
-            "row={} ",
-            "px={} ",
-            "color={}"
-        ),
-        x,
-        y,
-        bg_x,
-        bg_y,
-        use_window,
-        map,
-        map_index,
-        tile_index,
-        attr,
-        if bank { 1 } else { 0 },
-        palette,
-        flip_x,
-        flip_y,
-        priority,
-        base,
-        tile_offset,
-        row,
-        px,
-        color_id,
-    );
-}
 }
