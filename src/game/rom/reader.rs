@@ -47,8 +47,9 @@ pub struct Rom {
 
 impl Rom {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, RomError> {
-        let path = path.as_ref().to_path_buf();
-        let data = fs::read(&path)?;
+        let requested = path.as_ref().to_path_buf();
+        let resolved = resolve_rom_path(&requested).unwrap_or(requested.clone());
+        let data = fs::read(&resolved)?;
 
         if data.len() < 0x150 {
             return Err(RomError::TooSmall { actual: data.len() });
@@ -77,7 +78,7 @@ impl Rom {
             ram_size_code: data[0x149],
         };
 
-        Ok(Self { path, data, header })
+        Ok(Self { path: resolved, data, header })
     }
 
     pub fn path(&self) -> &Path { &self.path }
@@ -112,5 +113,58 @@ impl Rom {
         self.data[address..address + 16]
             .try_into()
             .expect("Tile poza ROM")
+    }
+}
+
+fn resolve_rom_path(path: &Path) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    let input = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().ok()?.join(path) };
+    candidates.push(input.clone());
+
+    let cwd = std::env::current_dir().ok()?;
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
+    let parent_dir = cwd.parent().map(Path::to_path_buf);
+
+    for base in [cwd.clone(), exe_dir.clone(), parent_dir.clone()].into_iter().flatten() {
+        let joined = base.join(path);
+        if joined.exists() { candidates.push(joined); }
+    }
+
+    for base in [cwd, exe_dir, parent_dir].into_iter().flatten() {
+        for candidate_name in [
+            "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb",
+            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gbc",
+            "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gb",
+        ] {
+            let candidate = base.join(candidate_name);
+            if candidate.exists() { candidates.push(candidate); }
+        }
+    }
+
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_common_zelda_rom_filenames_from_working_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("gb-port-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let rom_name = "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc";
+        let rom_path = temp_dir.join(rom_name);
+        std::fs::write(&rom_path, vec![0u8; 0x100000]).unwrap();
+
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&temp_dir).unwrap();
+        let resolved = resolve_rom_path(Path::new(rom_name));
+        std::env::set_current_dir(previous).unwrap();
+
+        assert_eq!(resolved, Some(rom_path));
+        let _ = std::fs::remove_file(rom_path);
+        let _ = std::fs::remove_dir(temp_dir);
     }
 }
