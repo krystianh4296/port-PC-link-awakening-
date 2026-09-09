@@ -7,7 +7,11 @@ const ROM_PATH: &str = "Legend of Zelda, The - Link's Awakening DX (USA, Europe)
 const TARGET_FRAMES: u16 = 600;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let rom = Rom::load(ROM_PATH)?;
+    let rom_path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| ROM_PATH.to_string());
+
+    let rom = Rom::load(&rom_path)?;
     let mut game = Game::new(rom);
     let mut frames = 0u16;
     let mut cycles = 0u64;

@@ -16,6 +16,7 @@ pub struct RomHeader {
 #[derive(Debug)]
 pub enum RomError {
     Io(std::io::Error),
+    NotFound { path: PathBuf },
     TooSmall { actual: usize },
     InvalidSize { actual: usize, expected: usize },
     InvalidMd5 { actual: String, expected: &'static str },
@@ -25,6 +26,7 @@ impl std::fmt::Display for RomError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(err) => write!(f, "Nie można odczytać ROM: {err}"),
+            Self::NotFound { path } => write!(f, "Nie znaleziono pliku ROM: {}", path.display()),
             Self::TooSmall { actual } => write!(f, "ROM jest zbyt mały: {actual} bajtów"),
             Self::InvalidSize { actual, expected } => write!(f, "Nieprawidłowy rozmiar ROM: {actual} bajtów, oczekiwano {expected}"),
             Self::InvalidMd5 { actual, expected } => write!(f, "Nieprawidłowy ROM MD5: {actual}, oczekiwano {expected}"),
@@ -49,7 +51,12 @@ impl Rom {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, RomError> {
         let requested = path.as_ref().to_path_buf();
         let resolved = resolve_rom_path(&requested).unwrap_or(requested.clone());
-        let data = fs::read(&resolved)?;
+
+        if !resolved.is_file() {
+            return Err(RomError::NotFound { path: resolved });
+        }
+
+        let data = fs::read(&resolved).map_err(RomError::Io)?;
 
         if data.len() < 0x150 {
             return Err(RomError::TooSmall { actual: data.len() });
@@ -126,12 +133,16 @@ fn resolve_rom_path(path: &Path) -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
     let parent_dir = cwd.parent().map(Path::to_path_buf);
 
-    for base in [cwd.clone(), exe_dir.clone(), parent_dir.clone()].into_iter().flatten() {
+    let mut search_roots: Vec<PathBuf> = vec![cwd.clone()];
+    if let Some(exe_dir) = exe_dir.clone() { search_roots.push(exe_dir); }
+    if let Some(parent_dir) = parent_dir.clone() { search_roots.push(parent_dir); }
+
+    for base in &search_roots {
         let joined = base.join(path);
         if joined.exists() { candidates.push(joined); }
     }
 
-    for base in [cwd, exe_dir, parent_dir].into_iter().flatten() {
+    for base in search_roots {
         for candidate_name in [
             "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
             "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb",
@@ -163,7 +174,7 @@ mod tests {
         let resolved = resolve_rom_path(Path::new(rom_name));
         std::env::set_current_dir(previous).unwrap();
 
-        assert_eq!(resolved, Some(rom_path));
+        assert_eq!(resolved, Some(rom_path.clone()));
         let _ = std::fs::remove_file(rom_path);
         let _ = std::fs::remove_dir(temp_dir);
     }

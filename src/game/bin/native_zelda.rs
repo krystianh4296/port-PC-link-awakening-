@@ -12,7 +12,11 @@ use gameboy_port::rom::Rom;
 use std::time::{Duration, Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let rom = Rom::load("Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc")?;
+    let rom_path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc".to_string());
+
+    let rom = Rom::load(&rom_path)?;
     let mut game = Game::new(rom);
     game.set_audio(Audio::new());
     let mut renderer = Renderer::new();
