@@ -19,9 +19,57 @@ pub struct Cpu {
     pub halted: bool,
 
     pub opcode_counts: [u64; 256],
+    // Temporary one-shot tracer for debugging PC target hits
+    pub debug_pc_traced: bool,
+    // previous-instruction snapshot
+    pub prev_pc: u16,
+    pub prev_opcode: u8,
+    pub prev_sp: u16,
+    // recent instruction history (pc, opcode, sp) for diagnostics
+    pub instr_history: Vec<(u16, u8, u16)>,
 }
 
+
+
 impl Cpu {
+    fn maybe_trace_pc(&mut self, new_pc: u16, cause: &str, bus: &mut crate::bus::Bus, prev_pc: u16, prev_opcode: u8, sp_before: u16) {
+        if self.debug_pc_traced || new_pc != 0x5C05 {
+            return;
+        }
+
+        self.debug_pc_traced = true;
+
+        // Stack bytes at SP
+        let b0 = bus.read(sp_before);
+        let b1 = bus.read(sp_before.wrapping_add(1));
+
+        let low = bus.mbc1.rom_bank_low as usize;
+        let high = bus.mbc1.rom_bank_high as usize;
+        let banking = bus.mbc1.banking_mode as usize;
+        let bank_4000 = if banking == 0 { (high << 5) | low } else { low };
+
+        let mut surround = Vec::new();
+        for i in 0..16u16 {
+            let addr = prev_pc.wrapping_sub(8).wrapping_add(i);
+            surround.push((addr, bus.read(addr)));
+        }
+
+        eprintln!("--- PC TARGET TRACE (one-shot) ---");
+        eprintln!("cause={} prev_pc=${:04X} prev_opcode={:02X}", cause, prev_pc, prev_opcode);
+        eprintln!("new_pc=${:04X}", new_pc);
+        eprintln!("sp_before=${:04X} sp_bytes={:02X} {:02X}", sp_before, b0, b1);
+        eprintln!("IME={} halted={}", self.ime, self.halted);
+        eprintln!("mbc1.low={} high={} banking={} bank_4000={}", low, high, banking, bank_4000);
+        eprintln!("Surrounding bytes around prev_pc:");
+        for (a, v) in surround {
+            eprint!("{:04X}:{:02X} ", a, v);
+        }
+        eprintln!("\nRecent instruction history (most recent last):");
+        for (a, op, sp) in &self.instr_history {
+            eprintln!("  {:04X}: {:02X} SP={:04X}", a, op, sp);
+        }
+        eprintln!("\n--- end trace ---");
+    }
     pub fn new() -> Self {
         Self {
             a: 0,
@@ -38,6 +86,11 @@ impl Cpu {
             ime_pending: false,
             halted: false,
             opcode_counts: [0; 256],
+            debug_pc_traced: false,
+            prev_pc: 0,
+            prev_opcode: 0,
+            prev_sp: 0,
+            instr_history: Vec::new(),
         }
     }
 
@@ -56,6 +109,11 @@ impl Cpu {
         self.ime = false;
         self.ime_pending = false;
         self.halted = false;
+        self.debug_pc_traced = false;
+        self.prev_pc = 0;
+        self.prev_opcode = 0;
+        self.prev_sp = 0;
+        self.instr_history.clear();
     }
 
     pub fn af(&self) -> u16 {
@@ -503,8 +561,41 @@ impl Cpu {
     }
 
     fn execute(&mut self, bus: &mut crate::bus::Bus) -> u32 {
+        // Temporary diagnostic: inspect mapping when PC reaches 0x5C05
+        if std::env::var("DEBUG_F4_TRACE").is_ok() && self.pc == 0x5C05 {
+            let addr = self.pc;
+            let low = bus.mbc1.rom_bank_low as usize;
+            let high = bus.mbc1.rom_bank_high as usize;
+            let banking = bus.mbc1.banking_mode as usize;
+
+            let bank_4000 = if banking == 0 { (high << 5) | low } else { low };
+            let bank_0000 = if banking == 0 { 0 } else { high << 5 };
+
+            let mapped = bus.mbc1.read(&bus.rom, addr);
+            let file_offset = bank_4000 * 0x4000 + (addr as usize - 0x4000);
+            let file_byte = bus.rom.read(file_offset);
+
+            eprintln!(
+                "DEBUG_F4_TRACE PC={:04X} mbc1.low={} high={} banking={} bank_4000={} mapped={:02X} file_off={:06X} file_byte={:02X}",
+                addr, low, high, banking, bank_4000, mapped, file_offset, file_byte
+            );
+        }
+
+        let prev_pc = self.pc;
+        let sp_before = self.sp;
+
         let opcode = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
+
+        // record previous-instruction snapshot for potential tracing
+        self.prev_pc = prev_pc;
+        self.prev_opcode = opcode;
+        self.prev_sp = sp_before;
+        // push into small history buffer
+        if self.instr_history.len() >= 16 {
+            self.instr_history.remove(0);
+        }
+        self.instr_history.push((prev_pc, opcode, sp_before));
 
         self.opcode_counts[opcode as usize] += 1;
 
@@ -940,6 +1031,7 @@ impl Cpu {
             0x18 => {
                 let offset = self.read_imm8(bus) as i8;
                 self.pc = (self.pc as i32 + offset as i32) as u16;
+                self.maybe_trace_pc(self.pc, "JR", bus, self.prev_pc, self.prev_opcode, self.prev_sp);
 
                 12
             }
@@ -954,6 +1046,7 @@ impl Cpu {
 
                 if condition {
                     self.pc = target;
+                    self.maybe_trace_pc(self.pc, "JR_CC", bus, self.prev_pc, self.prev_opcode, self.prev_sp);
                     12
                 } else {
                     8
@@ -967,6 +1060,7 @@ impl Cpu {
 
                 if self.condition(cc) {
                     self.pc = address;
+                    self.maybe_trace_pc(self.pc, "JP_CC", bus, self.prev_pc, self.prev_opcode, self.prev_sp);
                     16
                 } else {
                     12
@@ -976,8 +1070,11 @@ impl Cpu {
             // JP a16
             0xC3 => {
                 let address = self.read_imm16(bus);
-
+                let prev_pc = prev_pc;
+                let prev_opcode = opcode;
+                let sp_before = sp_before;
                 self.pc = address;
+                self.maybe_trace_pc(self.pc, "JP", bus, prev_pc, prev_opcode, sp_before);
                 16
             }
 
@@ -1009,8 +1106,11 @@ impl Cpu {
                 let return_addr = self.pc.wrapping_add(2);
 
                 self.push(bus, return_addr);
-
+                let prev_pc = prev_pc;
+                let prev_opcode = opcode;
+                let sp_before = sp_before;
                 self.pc = target;
+                self.maybe_trace_pc(self.pc, "CALL", bus, prev_pc, prev_opcode, sp_before);
 
                 24
             }
@@ -1019,7 +1119,12 @@ impl Cpu {
                 let cc = (opcode >> 3) & 0x03;
 
                 if self.condition(cc) {
-                    self.pc = self.pop(bus);
+                    let prev_pc = prev_pc;
+                    let prev_opcode = opcode;
+                    let sp_before = sp_before;
+                    let ret_addr = self.pop(bus);
+                    self.pc = ret_addr;
+                    self.maybe_trace_pc(self.pc, "RET", bus, prev_pc, prev_opcode, sp_before);
                     20
                 } else {
                     8
@@ -1028,16 +1133,25 @@ impl Cpu {
 
             // RET
             0xC9 => {
-                self.pc = self.pop(bus);
+                let prev_pc = prev_pc;
+                let prev_opcode = opcode;
+                let sp_before = sp_before;
+                let ret_addr = self.pop(bus);
+                self.pc = ret_addr;
+                self.maybe_trace_pc(self.pc, "RET", bus, prev_pc, prev_opcode, sp_before);
                 16
             }
 
             // RETI
             0xD9 => {
+                let prev_pc = prev_pc;
+                let prev_opcode = opcode;
+                let sp_before = sp_before;
                 let return_address = self.pop(bus);
 
                 self.pc = return_address;
                 self.ime = true;
+                self.maybe_trace_pc(self.pc, "RETI", bus, prev_pc, prev_opcode, sp_before);
 
                 16
             }
@@ -1218,8 +1332,63 @@ impl Cpu {
                 4
             }
 
-            // Invalid opcodes
+        // ... (handling of opcodes continues)
             0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {
+                // Before panicking, if this instruction caused PC to land on interesting target,
+                // emit a one-time diagnostic.
+                // instruction address is self.pc - 1
+                if !self.debug_pc_traced && self.pc.wrapping_sub(1) == 0x5C05 {
+                    self.debug_pc_traced = true;
+                    // Determine operation type from opcode
+                    let op_type = match opcode {
+                        0xC3 | 0xC2 | 0xCA | 0xD2 | 0xDA => "JP",
+                        0x18 | 0x20 | 0x28 | 0x30 | 0x38 => "JR",
+                        0xCD | 0xC4 | 0xCC | 0xD4 | 0xDC => "CALL",
+                        0xC9 | 0xC0 | 0xC8 | 0xD0 | 0xD8 => "RET",
+                        0xD9 => "RETI",
+                        0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => "RST",
+                        _ => "OTHER",
+                    };
+
+                    // Stack bytes to inspect
+                    let (stack_addr, b0, b1) = if op_type == "CALL" {
+                        let addr = self.sp; // after CALL push, SP points to pushed low
+                        (addr, bus.read(addr), bus.read(addr.wrapping_add(1)))
+                    } else {
+                        (sp_before, bus.read(sp_before), bus.read(sp_before.wrapping_add(1)))
+                    };
+
+                    // MBC1 mapping info
+                    let low = bus.mbc1.rom_bank_low as usize;
+                    let high = bus.mbc1.rom_bank_high as usize;
+                    let banking = bus.mbc1.banking_mode as usize;
+                    let bank_4000 = if banking == 0 { (high << 5) | low } else { low };
+
+                    // bytes around previous PC
+                    let mut surround = Vec::new();
+                    for i in 0..16u16 {
+                        let addr = prev_pc.wrapping_sub(8).wrapping_add(i);
+                        surround.push((addr, bus.read(addr)));
+                    }
+
+                    eprintln!("--- PC TARGET TRACE (one-shot) ---");
+                    eprintln!("prev_pc=${:04X}", prev_pc);
+                    eprintln!("prev_opcode={:02X}", opcode);
+                    eprintln!("op_type={}", op_type);
+                    eprintln!("new_pc=${:04X}", self.pc);
+                    eprintln!("sp_before=${:04X}", sp_before);
+                    eprintln!("sp_after=${:04X}", self.sp);
+                    eprintln!("stack_addr=${:04X} stack_bytes={:02X} {:02X}", stack_addr, b0, b1);
+                    eprintln!("IME={} halted={}", self.ime, self.halted);
+                    eprintln!("mbc1.low={} high={} banking={}", low, high, banking);
+                    eprintln!("bank_4000={}", bank_4000);
+                    eprintln!("Surrounding bytes around prev_pc:");
+                    for (a, v) in surround {
+                        eprint!("{:04X}:{:02X} ", a, v);
+                    }
+                    eprintln!("\n--- end trace ---");
+                }
+
                 panic!(
                     "Nieprawidłowa instrukcja {:02X} pod adresem ${:04X}",
                     opcode,

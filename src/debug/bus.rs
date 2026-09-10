@@ -49,6 +49,34 @@ pub struct Bus {
 impl Bus {
     pub fn new(path: &str) -> Self {
         let rom = Rom::load(path).expect("Nie można wczytać ROM-u");
+        // Diagnostic: optional ROM hex dump for debugging tests.
+        if std::env::var("DEBUG_ROM_DUMP").is_ok() {
+            let start = 0x5C00usize;
+            let len = 0x20usize;
+            eprintln!("ROM dump around 0x5C00:");
+            for i in start..(start + len) {
+                if (i - start) % 16 == 0 {
+                    eprint!("\n{:04X}: ", i);
+                }
+                eprint!("{:02X} ", rom.read(i));
+            }
+            eprintln!();
+            // Scan for CALL/JP to 0x5C05
+            let mut found = 0;
+            for i in 0..(rom.size().saturating_sub(2)) {
+                if rom.read(i) == 0xCD && rom.read(i + 1) == 0x05 && rom.read(i + 2) == 0x5C {
+                    eprintln!("Found CALL 5C05 at file offset {:06X}", i);
+                    found += 1;
+                }
+                if rom.read(i) == 0xC3 && rom.read(i + 1) == 0x05 && rom.read(i + 2) == 0x5C {
+                    eprintln!("Found JP 5C05 at file offset {:06X}", i);
+                    found += 1;
+                }
+            }
+            if found == 0 {
+                eprintln!("No direct CALL/JP to 5C05 found in ROM");
+            }
+        }
         let mbc1 = Mbc1::new(&rom);
 
         Self {
