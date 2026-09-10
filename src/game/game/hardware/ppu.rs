@@ -188,11 +188,30 @@ impl Ppu {
         if !self.window_started && self.window_is_visible_on_line(self.ly)
             && (self.pixel_x as i16) == window_trigger_x
         {
+            // Entering Window: clear FIFO and reset fetcher fully so the
+            // Window fetcher starts from tile 0, phase 0 with clean state.
             self.bg_fifo.clear();
             self.fetcher = BgFetcher::default();
+            // Be explicit about zeroing fields to avoid depending on Default
+            self.fetcher.phase = 0;
             self.fetcher.tile_column = 0;
+            self.fetcher.tile_index = 0;
+            self.fetcher.attributes = BgAttributes::default();
+            self.fetcher.low = 0;
+            self.fetcher.high = 0;
             self.window_started = true;
             self.scx_discard = 0;
+
+            // Optional runtime diagnostics when Window starts; prints a
+            // concise line for the first few window pixels to help debug.
+            if std::env::var_os("PPU_RUNTIME_DEBUG").is_some() {
+                let map_base = if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 };
+                let tile_column = self.fetcher.tile_column;
+                let map_index = (map_base - 0x8000) as usize + (self.window_line as usize / 8) * 32 + tile_column;
+                let tile_index = vram0.get(map_index).copied().unwrap_or(0);
+                println!("PPU WINDOW START LY={} pixel_x={} window_started={} window_line={} WX={} WY={} map_base={:04X} tile_column={} tile_index={:02X}",
+                    self.ly, self.pixel_x, self.window_started, self.window_line, self.wx, self.wy, map_base, tile_column, tile_index);
+            }
         }
 
         let Some(pixel) = self.bg_fifo.pop_front() else { return; };
@@ -314,8 +333,25 @@ impl Ppu {
         match address {
             0xFF40 => {
                 let was = self.lcdc & 0x80 != 0; let now = value & 0x80 != 0; self.lcdc = value;
-                if was && !now { self.ly = 0; self.cycle_counter = 0; self.mode3_cycles = 172; self.frame_ready = false; self.set_mode(0); }
-                else if !was && now { self.ly = 0; self.cycle_counter = 0; self.mode3_cycles = 172; self.frame_ready = false; self.set_mode(2); }
+                if was && !now {
+                    // LCD disabled: reset LY and window state
+                    self.ly = 0;
+                    self.cycle_counter = 0;
+                    self.mode3_cycles = 172;
+                    self.frame_ready = false;
+                    self.window_line = 0;
+                    self.window_started = false;
+                    self.set_mode(0);
+                } else if !was && now {
+                    // LCD enabled: start fresh
+                    self.ly = 0;
+                    self.cycle_counter = 0;
+                    self.mode3_cycles = 172;
+                    self.frame_ready = false;
+                    self.window_line = 0;
+                    self.window_started = false;
+                    self.set_mode(2);
+                }
                 self.update_lyc_flag(); self.update_stat_interrupt();
             }
             0xFF41 => { self.stat = (self.stat & 7) | (value & 0x78) | 0x80; self.update_stat_interrupt(); }
