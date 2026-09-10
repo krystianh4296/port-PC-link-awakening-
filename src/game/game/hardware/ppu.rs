@@ -178,11 +178,15 @@ impl Ppu {
             self.fetcher_step(vram0, vram1);
         }
 
-        let window_trigger_x = self.wx.saturating_sub(7);
+        // Compute trigger X as signed (WX - 7). When WX < 7 the trigger
+        // position is negative and must not match any pixel_x (so the
+        // window does not start on-screen). Using saturating_sub would
+        // clamp negative positions to 0 and incorrectly start the window
+        // at x=0 when WX < 7.
+        let window_trigger_x = i16::from(self.wx) - 7;
 
-        if !self.window_started
-            && self.window_is_visible_on_line(self.ly)
-            && self.pixel_x as u8 == window_trigger_x
+        if !self.window_started && self.window_is_visible_on_line(self.ly)
+            && (self.pixel_x as i16) == window_trigger_x
         {
             self.bg_fifo.clear();
             self.fetcher = BgFetcher::default();
