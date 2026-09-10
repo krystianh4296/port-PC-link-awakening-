@@ -403,14 +403,32 @@ impl Ppu {
             let map_index = (map_base - 0x8000) as usize + tile_y * 32 + tile_x;
             let tile_index = vram0[map_index];
             let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map_base);
-            let (palette, _bank, flip_x, flip_y, _) =
-                Self::background_tile_attribute_info(attr);
+            let (palette, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
 
-            let tile = Self::background_tile_data(vram0, tile_index, tile_base);
+            // Select the correct VRAM bank for tile graphics according to the CGB
+            // attribute bit (bit 3). On CGB the tile map always lives in VRAM bank 0,
+            // while the attribute map lives in VRAM bank 1. The attribute's bank
+            // bit selects whether the tile graphics (planes) are read from bank 0
+            // or bank 1.
+            let tile_vram = if bank { vram1 } else { vram0 };
+            let tile = Self::background_tile_data(
+                tile_vram,
+                tile_index,
+                tile_base,
+            );
             let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
             let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
             let ci = Self::decode_tile_row(&tile, row)[px];
             out[x] = self.background_palette_color(palette, ci);
+
+            // Optional runtime debug for the first few tiles of the scanline.
+            if std::env::var_os("PPU_RUNTIME_DEBUG").is_some() && x < 8 {
+                let tile_address = if tile_base == 0x8000 { 0x8000usize + tile_index as usize * 16 }
+                    else { let signed_index = tile_index as i8 as isize; (0x9000isize + signed_index * 16) as usize };
+                let from_bank = if bank { "VRAM1" } else { "VRAM0" };
+                println!("PPU DBG: x={} map_base={:04X} map_index={:04X} tile_index={:02X} attr={:02X} bank={} tile_addr={:04X} from={}",
+                    x, map_base, map_index, tile_index, attr, bank as u8, tile_address, from_bank);
+            }
         }
         out
     }
