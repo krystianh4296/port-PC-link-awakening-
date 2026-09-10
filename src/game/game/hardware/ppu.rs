@@ -403,9 +403,10 @@ impl Ppu {
             let map_index = (map_base - 0x8000) as usize + tile_y * 32 + tile_x;
             let tile_index = vram0[map_index];
             let attr = Self::background_tile_attributes(vram1, bg_x as u8, bg_y as u8, map_base);
-            let (palette, bank, flip_x, flip_y, _) = Self::background_tile_attribute_info(attr);
-            let tile_vram = if bank { vram1 } else { vram0 };
-            let tile = Self::background_tile_data(tile_vram, tile_index, tile_base);
+            let (palette, _bank, flip_x, flip_y, _) =
+                Self::background_tile_attribute_info(attr);
+
+            let tile = Self::background_tile_data(vram0, tile_index, tile_base);
             let row = if flip_y { 7 - (bg_y & 7) } else { bg_y & 7 };
             let px = if flip_x { 7 - (bg_x & 7) } else { bg_x & 7 };
             let ci = Self::decode_tile_row(&tile, row)[px];
@@ -414,10 +415,21 @@ impl Ppu {
         out
     }
 
-    fn background_pixel_info_at(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], x: usize, y: u8) -> (u8, bool) {
-        let map_base = if self.lcdc & 8 != 0 { 0x9C00 } else { 0x9800 };
-        let bg_x = (x as usize + self.scx as usize) & 0xFF;
-        let bg_y = (y as usize + self.scy as usize) & 0xFF;
+    pub fn background_pixel_info_at(&self, vram0: &[u8; 0x2000], vram1: &[u8; 0x2000], x: usize, y: u8) -> (u8, bool) {
+        let (map_base, bg_x, bg_y) = if self.lcdc & 0x20 != 0 && y >= self.wy && self.wx <= 166 && x as i16 >= self.wx as i16 - 7 {
+            let window_x = x as i32 - (self.wx as i32 - 7);
+            if window_x < 0 {
+                return (0, false);
+            }
+            let map_base = if self.lcdc & 0x40 != 0 { 0x9C00 } else { 0x9800 };
+            (map_base, window_x as usize, self.window_line as usize)
+        } else {
+            let map_base = if self.lcdc & 0x08 != 0 { 0x9C00 } else { 0x9800 };
+            let bg_x = (x as usize + self.scx as usize) & 0xFF;
+            let bg_y = (y as usize + self.scy as usize) & 0xFF;
+            (map_base, bg_x, bg_y)
+        };
+
         let tile_x = bg_x >> 3;
         let tile_y = bg_y >> 3;
         let index = (map_base - 0x8000) as usize + tile_y * 32 + tile_x;

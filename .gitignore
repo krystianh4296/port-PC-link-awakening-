@@ -1,5 +1,10 @@
-# Rust / Cargo
-/target/
+
+
+# Build
+target/
+
+# Rust
+Cargo.lock
 
 # Logi emulatora
 /log/
@@ -19,7 +24,13 @@ log*.txt
 *.sst
 *.savestate
 
-# VS Code
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.VC.db
+*.VC.opendb
 .vscode/
 
 # Windows

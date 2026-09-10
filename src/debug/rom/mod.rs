@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 pub struct Rom {
@@ -7,9 +8,10 @@ pub struct Rom {
 
 impl Rom {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let path = path.as_ref().to_path_buf();
+        let requested = path.as_ref().to_path_buf();
+        let resolved = resolve_rom_path(&requested).unwrap_or(requested.clone());
 
-        let data = fs::read(&path).map_err(|e| format!("Nie udało się wczytać ROM-u: {}", e))?;
+        let data = fs::read(&resolved).map_err(|e| format!("Nie udało się wczytać ROM-u: {}", e))?;
 
         if data.len() < 0x150 {
             return Err("ROM jest za mały.".to_string());
@@ -25,7 +27,7 @@ impl Rom {
         println!("ROM size code: {:02X}", data[0x148]);
         println!("RAM size code: {:02X}", data[0x149]);
 
-        Ok(Self { data, path })
+        Ok(Self { data, path: resolved })
     }
 
     pub fn save_path(&self) -> PathBuf {
@@ -63,6 +65,52 @@ impl Rom {
     pub fn rom_bank_count(&self) -> usize {
         (self.data.len() / 0x4000).max(1)
     }
+}
+
+fn resolve_rom_path(path: &Path) -> Option<PathBuf> {
+    let requested = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+
+    if requested.is_file() {
+        return Some(requested);
+    }
+
+    let cwd = std::env::current_dir().ok()?;
+    let mut search_dirs = vec![cwd.clone()];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            search_dirs.push(parent.to_path_buf());
+        }
+    }
+
+    let mut seen = HashSet::new();
+    search_dirs.retain(|dir| seen.insert(dir.clone()));
+
+    let path_name = path.file_name().and_then(|f| f.to_str()).unwrap_or_default();
+    let candidate_names = [
+        path_name,
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
+        "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gbc",
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gb",
+        "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb",
+    ];
+
+    for dir in &search_dirs {
+        for candidate_name in &candidate_names {
+            if candidate_name.is_empty() {
+                continue;
+            }
+            let candidate = dir.join(candidate_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
 }
 
 // ============================================================

@@ -221,6 +221,30 @@ fn window_uses_its_own_tile_map_at_wx_minus_seven() {
 }
 
 #[test]
+fn background_pixel_info_at_uses_window_map_when_window_is_visible() {
+    let mut ppu = Ppu::new();
+    let (mut vram0, vram1) = blank_vram();
+
+    // BG map bytes are clear, while the window map intentionally uses a distinct tile.
+    for row in 0..8 {
+        vram0[row * 2] = 0xFF;
+        vram0[row * 2 + 1] = 0x00;
+        vram0[16 + row * 2] = 0x00;
+        vram0[16 + row * 2 + 1] = 0xFF;
+    }
+    vram0[0x1800] = 0;
+    vram0[0x1C00] = 1;
+
+    ppu.write(0xFF40, 0xF1); // BG + window enabled, window map at 9C00.
+    ppu.write(0xFF4A, 0);
+    ppu.write(0xFF4B, 7);
+
+    let (color_id, priority) = ppu.background_pixel_info_at(&vram0, &vram1, 0, 0);
+    assert_eq!(color_id, 2, "window pixels must resolve through the window map");
+    assert_eq!(priority, false, "window bg tile should not carry a priority bit by default");
+}
+
+#[test]
 fn background_map_tile_80_uses_vram_8800_in_unsigned_mode() {
     let ppu = Ppu::new();
     let (mut vram0, vram1) = blank_vram();

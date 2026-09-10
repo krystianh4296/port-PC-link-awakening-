@@ -124,37 +124,75 @@ impl Rom {
 }
 
 fn resolve_rom_path(path: &Path) -> Option<PathBuf> {
-    let mut candidates = Vec::new();
+    let requested = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
 
-    let input = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().ok()?.join(path) };
-    candidates.push(input.clone());
-
-    let cwd = std::env::current_dir().ok()?;
-    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
-    let parent_dir = cwd.parent().map(Path::to_path_buf);
-
-    let mut search_roots: Vec<PathBuf> = vec![cwd.clone()];
-    if let Some(exe_dir) = exe_dir.clone() { search_roots.push(exe_dir); }
-    if let Some(parent_dir) = parent_dir.clone() { search_roots.push(parent_dir); }
-
-    for base in &search_roots {
-        let joined = base.join(path);
-        if joined.exists() { candidates.push(joined); }
+    if requested.is_file() {
+        return Some(requested);
     }
 
-    for base in search_roots {
-        for candidate_name in [
-            "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb",
-            "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gbc",
-            "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gb",
-        ] {
-            let candidate = base.join(candidate_name);
-            if candidate.exists() { candidates.push(candidate); }
+    let mut search_dirs = vec![];
+    let cwd = std::env::current_dir().ok()?;
+    let mut dir = cwd.clone();
+    loop {
+        search_dirs.push(dir.clone());
+        if let Some(parent) = dir.parent() {
+            if parent == dir {
+                break;
+            }
+            dir = parent.to_path_buf();
+        } else {
+            break;
         }
     }
 
-    candidates.into_iter().find(|p| p.is_file())
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            search_dirs.push(parent.to_path_buf());
+        }
+    }
+
+    // De-duplicate while preserving order.
+    let mut seen = std::collections::HashSet::new();
+    search_dirs.retain(|dir| seen.insert(dir.clone()));
+
+    let path_name = path.file_name().and_then(|f| f.to_str()).unwrap_or_default();
+    let candidate_names = [
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc",
+        "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gb",
+        "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gbc",
+        "Legend of Zelda, The - Links Awakening (USA, Europe) (Rev 2).gb",
+        path_name,
+    ];
+
+    let mut matches = Vec::new();
+    for dir in &search_dirs {
+        for candidate_name in &candidate_names {
+            if candidate_name.is_empty() { continue; }
+            let candidate = dir.join(candidate_name);
+            if candidate.is_file() {
+                matches.push(candidate);
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name();
+                let name = file_name.to_string_lossy().to_ascii_lowercase();
+                if name.contains("link") && name.contains("awakening") && (name.ends_with(".gb") || name.ends_with(".gbc")) {
+                    let candidate = entry.path();
+                    if candidate.is_file() {
+                        matches.push(candidate);
+                    }
+                }
+            }
+        }
+    }
+
+    matches.into_iter().find(|p| p.is_file())
 }
 
 #[cfg(test)]
@@ -162,19 +200,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolves_common_zelda_rom_filenames_from_working_directory() {
+    fn resolves_explicit_project_rom_path_without_touching_global_cwd() {
         let temp_dir = std::env::temp_dir().join(format!("gb-port-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&temp_dir);
         let rom_name = "Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2).gbc";
         let rom_path = temp_dir.join(rom_name);
         std::fs::write(&rom_path, vec![0u8; 0x100000]).unwrap();
 
-        let previous = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&temp_dir).unwrap();
-        let resolved = resolve_rom_path(Path::new(rom_name));
-        std::env::set_current_dir(previous).unwrap();
+        assert_eq!(resolve_rom_path(&rom_path), Some(rom_path.clone()));
 
-        assert_eq!(resolved, Some(rom_path.clone()));
         let _ = std::fs::remove_file(rom_path);
         let _ = std::fs::remove_dir(temp_dir);
     }
