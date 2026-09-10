@@ -135,7 +135,12 @@ impl Ppu {
             1 if self.cycle_counter >= 456 => {
                 self.cycle_counter = 0;
                 self.ly = self.ly.wrapping_add(1);
-                if self.ly > 153 { self.ly = 0; self.window_line = 0; self.set_mode(2); }
+                if self.ly > 153 {
+                    self.ly = 0;
+                    self.window_line = 0;
+                    self.window_started = false;
+                    self.set_mode(2);
+                }
                 self.update_lyc_flag(); self.update_stat_interrupt();
             }
             _ => {}
@@ -153,11 +158,15 @@ impl Ppu {
     fn begin_pixel_transfer(&mut self) {
         self.bg_fifo.clear();
         self.fetcher = BgFetcher::default();
+
         self.pixel_x = 0;
         self.scx_discard = self.scx & 7;
+
+        // NOWE
         self.window_started = false;
-        self.bg_color_ids = [0; 160];
-        self.bg_priorities = [false; 160];
+
+        self.bg_color_ids.fill(0);
+        self.bg_priorities.fill(false);
     }
 
     /// Advance the BG/window fetcher. Each of its four phases takes two dots:
@@ -169,15 +178,17 @@ impl Ppu {
             self.fetcher_step(vram0, vram1);
         }
 
-        if !self.window_started && self.window_is_visible_on_line(self.ly)
-            && self.pixel_x as i16 >= self.wx as i16 - 7
+        let window_trigger_x = self.wx.saturating_sub(7);
+
+        if !self.window_started
+            && self.window_is_visible_on_line(self.ly)
+            && self.pixel_x as u8 == window_trigger_x
         {
-            // The window restarts the BG fetcher and discards queued BG pixels.
             self.bg_fifo.clear();
             self.fetcher = BgFetcher::default();
-            self.scx_discard = 0;
+            self.fetcher.tile_column = 0;
             self.window_started = true;
-            return;
+            self.scx_discard = 0;
         }
 
         let Some(pixel) = self.bg_fifo.pop_front() else { return; };
